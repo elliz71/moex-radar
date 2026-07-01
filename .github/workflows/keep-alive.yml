@@ -12,35 +12,17 @@ jobs:
     steps:
       - name: 🔄 Ping Streamlit app
         run: |
-          echo "⏰ Время пинга: $(date)"
+          echo "⏰ Время: $(date)"
           echo "🎯 Цель: https://my-moex-radar-24.streamlit.app/"
           echo ""
           
-          # -L = следовать за редиректами
-          # -s = тихий режим
-          # -o /dev/null = не показывать тело ответа
-          # -w = показать информацию о запросе
-          HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" https://my-moex-radar-24.streamlit.app/)
-          
-          echo "📊 Финальный HTTP статус: $HTTP_CODE"
-          
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Приложение работает нормально!"
-          elif [ "$HTTP_CODE" = "503" ]; then
-            echo "⚠️ Приложение просыпается (это нормально)"
-          else
-            echo "⚠️ Необычный статус: $HTTP_CODE"
-          fi
-      
-      - name: ⏱️ Ждём 10 секунд
-        run: sleep 10
-      
-      - name: 🔄 Повторный пинг (для надёжности)
-        run: |
-          curl -L -s -o /dev/null https://my-moex-radar-24.streamlit.app/
-          echo "✅ Второй пинг выполнен"
-      
-      - name: 📈 Статистика
-        run: |
-          echo "🎉 Пинг-сессия завершена успешно!"
-          echo "Следующий автоматический пинг через ~20 минут"
+          # Пробуем подключиться с повторными попытками
+          for i in 1 2 3; do
+            echo " Попытка $i из 3..."
+            
+            HTTP_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" \
+              --connect-timeout 10 \
+              --max-time 30 \
+              https://my-moex-radar-24.streamlit.app/ || echo "000")
+            
+            echo "   HTTP статус
