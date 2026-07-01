@@ -46,8 +46,8 @@ CONFIG = {
     'DYNAMIC_STOCKS': {},
     
     'INTERVAL': 10,
-    'VOLUME_MULTIPLIER': 2.5,
-    'PRICE_CHANGE_THRESHOLD': 1.2,
+    'VOLUME_MULTIPLIER': 1.8,          # 🔥 Снижено для более частых сигналов
+    'PRICE_CHANGE_THRESHOLD': 0.7,     # 🔥 Снижено для более частых сигналов
     'RSI_PERIOD': 14,
     'RSI_OVERSOLD': 30,
     'RSI_OVERBOUGHT': 70,
@@ -64,14 +64,13 @@ CONFIG = {
 }
 
 def get_all_assets():
-    """Получить все активы (core + dynamic + futures)"""
+    """Получить активы для мониторинга (core + dynamic + futures)"""
     assets = {}
     assets.update(CONFIG['CORE_ASSETS'])
     assets.update(CONFIG.get('DYNAMIC_STOCKS', {}))
     assets.update(CONFIG['FUTURES'])
     return assets
 
-# Для обратной совместимости
 CONFIG['ASSETS'] = get_all_assets()
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
@@ -235,27 +234,23 @@ def fetch_all_moex_stocks():
         
         df = pd.DataFrame(sec_data, columns=sec_columns)
         
-        # ИСПРАВЛЕНИЕ #3: Улучшенная фильтрация - только акции
-        # Проверяем SEC_TYPE если есть
+        # Фильтрация только акций
         if 'SEC_TYPE' in df.columns:
-            # Включаем только common_share, preferred_share и пустые (старый формат)
             valid_types = ['common_share', 'preferred_share', '']
             stocks = df[df['SEC_TYPE'].isin(valid_types) | df['SEC_TYPE'].isna()].copy()
         else:
             stocks = df.copy()
         
-        # Дополнительная фильтрация: исключаем ETF, облигации, депозитарные расписки
+        # Исключаем ETF, облигации
         if 'SECNAME' in stocks.columns:
-            # Фильтр по названию - исключаем ETF, bonds и т.д.
             exclude_patterns = ['etf', 'ofz', 'офз', 'флоат', 'фонд', 'облиг', 'bond', 'pkb', 'индекс']
             for pattern in exclude_patterns:
                 stocks = stocks[~stocks['SECNAME'].str.lower().str.contains(pattern, na=False)]
         
-        # Фильтр по ISIN - должен начинаться с RU (российские акции)
         if 'ISIN' in stocks.columns:
             stocks = stocks[stocks['ISIN'].str.startswith('RU', na=False)]
         
-        # Получаем рыночные данные
+        # Рыночные данные
         marketdata = data.get('marketdata', {})
         md_data = marketdata.get('data', [])
         md_columns = marketdata.get('columns', [])
@@ -264,7 +259,7 @@ def fetch_all_moex_stocks():
             md_df = pd.DataFrame(md_data, columns=md_columns)
             stocks = stocks.merge(md_df, on='SECID', how='left')
         
-        # Сортируем по объёму торгов
+        # Сортировка по объёму
         if 'VALTODAY' in stocks.columns:
             stocks['VALTODAY'] = pd.to_numeric(stocks['VALTODAY'], errors='coerce').fillna(0)
             stocks = stocks.sort_values('VALTODAY', ascending=False)
@@ -302,15 +297,27 @@ def get_all_stocks_catalog():
     return fetch_all_moex_stocks()
 
 def load_dynamic_stocks(top_n=None):
-    """Загрузка топ-N акций для фонового мониторинга"""
+    """Загрузка топ-N акций для мониторинга"""
     top_n = top_n or CONFIG.get('MAX_TRACKED_STOCKS', 30)
+    
+    logger.info(f"🔄 Загрузка топ-{top_n} акций для мониторинга...")
     all_stocks = get_all_stocks_catalog()
     
+    if not all_stocks:
+        logger.error("❌ Каталог акций пуст!")
+        return {}
+    
+    logger.info(f"📊 В каталоге {len(all_stocks)} акций")
+    
     dynamic = {}
-    for stock in all_stocks[:top_n]:
+    added_count = 0
+    
+    for stock in all_stocks:
         ticker = stock['ticker']
+        
         if ticker in CONFIG['CORE_ASSETS']:
             continue
+        
         name_words = stock['name'].lower().split() if stock['name'] else []
         keywords = [ticker.lower()]
         if name_words:
@@ -323,10 +330,17 @@ def load_dynamic_stocks(top_n=None):
             'keywords': keywords,
             'volatility': stock.get('volatility', 'medium')
         }
+        
+        added_count += 1
+        if added_count >= top_n:
+            break
     
     CONFIG['DYNAMIC_STOCKS'] = dynamic
-    CONFIG['ASSETS'] = get_all_assets()
+    
+    total_monitored = len(CONFIG['CORE_ASSETS']) + len(dynamic) + len(CONFIG['FUTURES'])
     logger.info(f"✅ Загружено {len(dynamic)} динамических акций")
+    logger.info(f"📈 Итого для мониторинга: {total_monitored} активов")
+    
     return dynamic
 
 # ==========================================
@@ -481,10 +495,8 @@ NEGATIVE_WORDS = {'пад', 'снижен', 'убыт', 'потерь', 'рис'
     'задерж', 'авар', 'пожар', 'конфликт', 'войн', 'эскал', 'инфляц', 'рецесс',
     'девальв', 'обвал', 'паник', 'распродаж', 'давлен', 'сниж', 'коррекц'}
 
-# Кэш активов для анализа новостей (ИСПРАВЛЕНИЕ #6)
 @st.cache_data(ttl=60)
 def get_cached_assets_for_analysis():
-    """Кэшированный список активов для анализа"""
     return get_all_assets()
 
 def analyze_news_sentiment(title, description=''):
@@ -496,7 +508,6 @@ def analyze_news_sentiment(title, description=''):
         sentiment = (pos_count - neg_count) / max(total, 1)
         
         found_tickers, found_keywords, sector = [], [], 'general'
-        # Используем кэшированный список для производительности
         assets = get_cached_assets_for_analysis()
         for ticker, info in assets.items():
             for kw in info.get('keywords', []):
@@ -665,23 +676,55 @@ def auto_label_signals():
             continue
 
 # ==========================================
-# 🤖 ФОНОВЫЙ МОНИТОРИНГ
+# 🤖 ФОНОВЫЙ МОНИТОРИНГ (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 # ==========================================
 def background_monitor():
-    """Фоновый мониторинг рынка"""
+    """Фоновый мониторинг рынка с самостоятельной загрузкой акций при необходимости"""
     init_db()
     alerted_candles = {}
     last_label_check = 0
     last_news_check = 0
     
-    # Ждём загрузки динамических акций (до 30 секунд)
+    # КРИТИЧЕСКИ ВАЖНО: Ждём загрузки динамических акций или загружаем сами
     wait_count = 0
-    while wait_count < 10 and not CONFIG.get('DYNAMIC_STOCKS'):
+    while wait_count < 10:
+        current_count = len(CONFIG.get('DYNAMIC_STOCKS', {}))
+        if current_count > 0:
+            break
         time.sleep(3)
         wait_count += 1
-        logger.info(f"⏳ Ожидание загрузки акций... ({wait_count}/10)")
+        if wait_count % 3 == 0:
+            logger.info(f"⏳ Ожидание акций... ({wait_count}/10, загружено: {current_count})")
     
-    logger.info(f"✅ Монитор запущен. Отслеживается активов: {len(get_all_assets())}")
+    # Если главный поток не загрузил - загружаем сами
+    if not CONFIG.get('DYNAMIC_STOCKS'):
+        logger.warning("⚠️ Главный поток не загрузил акции. Загружаем из монитора...")
+        try:
+            load_dynamic_stocks()
+        except Exception as e:
+            logger.error(f"Ошибка загрузки в мониторе: {e}")
+    
+    # Подробный отчёт о старте
+    monitored_assets = get_all_assets()
+    total_count = len(monitored_assets)
+    core_count = len(CONFIG['CORE_ASSETS'])
+    dynamic_count = len(CONFIG.get('DYNAMIC_STOCKS', {}))
+    futures_count = len(CONFIG['FUTURES'])
+    
+    logger.info("=" * 60)
+    logger.info("✅ МОНИТОР ЗАПУЩЕН")
+    logger.info(f"📊 Активов для мониторинга: {total_count}")
+    logger.info(f"   - Core акции: {core_count}")
+    logger.info(f"   - Dynamic акции: {dynamic_count}")
+    logger.info(f"   - Фьючерсы: {futures_count}")
+    logger.info(f"🔍 Пороги: Volume × {CONFIG['VOLUME_MULTIPLIER']}, Price ≥ {CONFIG['PRICE_CHANGE_THRESHOLD']}%")
+    logger.info("=" * 60)
+    
+    # Защита: если активов слишком мало - работаем хотя бы с core
+    if total_count < 5:
+        logger.error(f"🚨 Критически мало активов: {total_count}. Работаем только с core-активами")
+    
+    heartbeat_counter = 0
     
     while True:
         try:
@@ -725,10 +768,27 @@ def background_monitor():
             is_open = now.weekday() < 5 and 10 <= now.hour < 24
             
             if is_open:
-                # 🔔 HEARTBEAT - логируем что монитор жив
-                logger.info(f"💓 Heartbeat | Активов: {len(get_all_assets())} | {now.strftime('%H:%M:%S')}")
-                
+                # Получаем активы для мониторинга
                 all_assets = get_all_assets()
+                assets_count = len(all_assets)
+                
+                # Heartbeat каждые ~30 секунд (каждые 2 цикла при sleep=15)
+                heartbeat_counter += 1
+                if heartbeat_counter % 2 == 0:
+                    logger.info(f"💓 Heartbeat | Активов: {assets_count} | Время: {now.strftime('%H:%M:%S')}")
+                    
+                    # Предупреждения о проблемах
+                    if assets_count < 10:
+                        logger.warning(f"⚠️ Мало активов: {assets_count}. Попытка перезагрузить...")
+                        try:
+                            load_dynamic_stocks()
+                        except Exception as e:
+                            logger.error(f"Ошибка перезагрузки: {e}")
+                    elif assets_count > 100:
+                        logger.error(f"🚨 Слишком много активов: {assets_count}! Должно быть ~39")
+                
+                signals_found = 0
+                
                 for ticker, info in all_assets.items():
                     try:
                         df = fetch_moex_data_raw(ticker, info['type'])
@@ -788,6 +848,8 @@ def background_monitor():
                                  trade_levels['tp1'], trade_levels['tp2'], trade_levels['tp3'],
                                  trade_levels['risk_reward'], position_size, direction, support, resistance))
                             
+                            signals_found += 1
+                            
                             if direction != 'neutral' and trade_levels['risk_reward'] >= CONFIG['MIN_RISK_REWARD']:
                                 execute_db_query(
                                     '''INSERT INTO trade_ideas (timestamp, ticker, name, direction, entry_price,
@@ -805,12 +867,17 @@ def background_monitor():
                         logger.error(f"Ошибка мониторинга {ticker}: {e}")
                         continue
                     
-                    time.sleep(0.2)  # Ускорено
+                    time.sleep(0.2)
                 
-                time.sleep(15)  # Ускорено
+                if signals_found > 0:
+                    logger.info(f"✅ За цикл найдено сигналов: {signals_found}")
+                
+                time.sleep(15)
             
             else:
-                # Рынок закрыт - спим
+                # Рынок закрыт
+                if heartbeat_counter % 20 == 0:
+                    logger.info(f"😴 Рынок закрыт. Спим... ({now.strftime('%H:%M')})")
                 time.sleep(60)
         
         except Exception as e:
@@ -913,7 +980,7 @@ def generate_simple_chart(df, ticker, name):
         return fig
 
 # ==========================================
-# 🔥 HEATMAP КОРРЕЛЯЦИЙ (ИСПРАВЛЕНИЕ #4: +фьючерсы)
+# 🔥 HEATMAP КОРРЕЛЯЦИЙ
 # ==========================================
 def render_heatmap_correlation():
     st.subheader("🔥 Корреляция доходностей активов")
@@ -921,7 +988,6 @@ def render_heatmap_correlation():
     
     with st.spinner("Загрузка данных..."):
         prices_data = {}
-        # Включаем CORE_ASSETS + FUTURES + топ-10 DYNAMIC_STOCKS
         assets_for_corr = {}
         assets_for_corr.update(CONFIG['CORE_ASSETS'])
         assets_for_corr.update(CONFIG['FUTURES'])
@@ -966,8 +1032,7 @@ def render_heatmap_correlation():
                        color=color, fontsize=8, fontweight='bold')
         
         plt.colorbar(im, label='Корреляция', ax=ax)
-        ax.set_title('Корреляция доходностей (акции + сырьё + валюта)', 
-                    color='white', fontsize=14, pad=20)
+        ax.set_title('Корреляция доходностей', color='white', fontsize=14, pad=20)
         plt.tight_layout()
         st.pyplot(fig)
         plt.close(fig)
@@ -978,7 +1043,6 @@ def render_heatmap_correlation():
     with c2: st.error("🔴 **Красный (<-0.3)**\nПротивоположно")
     with c3: st.info("⚪ **Белый (~0)**\nНет связи")
     
-    # Топ корреляций
     pairs = []
     for i in range(len(corr_matrix)):
         for j in range(i+1, len(corr_matrix)):
@@ -1158,12 +1222,11 @@ def render_sector_comparison():
         st.error(f"📉 **Слабейший:** {worst_sector[0]}\n\n{worst_sector[1]:+.2f}%")
 
 # ==========================================
-# 📈 ВКЛАДКА КОТИРОВОК (ИСПРАВЛЕНИЕ #2 и #5)
+# 📈 ВКЛАДКА КОТИРОВОК
 # ==========================================
 @st.cache_data(ttl=60)
 def get_all_assets_data(assets_count):
-    """Получение данных по всем активам с кэшированием, зависящим от количества"""
-    # assets_count используется как ключ кэша - при изменении числа активов кэш инвалидируется
+    """Получение данных по всем активам с кэшированием"""
     assets = []
     for ticker, info in get_all_assets().items():
         df = get_moex_data(ticker, info['type'])
@@ -1213,7 +1276,6 @@ def render_quotes_tab():
     
     st.markdown("---")
     
-    # ИСПРАВЛЕНИЕ #2: Передаём количество активов как ключ кэша
     assets_count = len(get_all_assets())
     with st.spinner("Загрузка..."):
         assets = get_all_assets_data(assets_count)
@@ -1594,10 +1656,10 @@ def generate_exit_signals(price, entry, stop, tp1, tp2, tp3, direction, rsi):
     return signals
 
 # ==========================================
-# 🎨 ГЛАВНЫЙ ИНТЕРФЕЙС (ИСПРАВЛЕНИЕ #1: порядок)
+# 🎨 ГЛАВНЫЙ ИНТЕРФЕЙС (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 # ==========================================
 def main():
-    st.set_page_config(page_title="Макро-Радар МОЕХ v7.1", page_icon="📈", layout="wide")
+    st.set_page_config(page_title="Макро-Радар МОЕХ v7.2", page_icon="📈", layout="wide")
     st.markdown("""
     <style>
         .main { background-color: #0e1117; }
@@ -1609,23 +1671,28 @@ def main():
     </style>
     """, unsafe_allow_html=True)
     
-    # ИСПРАВЛЕНИЕ #1: Сначала БД и загрузка акций, потом запуск монитора
+    # ИСПРАВЛЕНИЕ: Сначала БД
     init_db()
     
-    # Загрузка динамических акций ПЕРЕД запуском монитора
-    if 'stocks_loaded' not in st.session_state:
+    # ИСПРАВЛЕНИЕ: Проверяем реальное состояние CONFIG, а не флаг
+    # (CONFIG сбрасывается при каждом rerun Streamlit, поэтому флаг бесполезен)
+    if not CONFIG.get('DYNAMIC_STOCKS'):
         try:
             load_dynamic_stocks()
-            st.session_state.stocks_loaded = True
+            logger.info(f"✅ Динамические акции загружены: {len(CONFIG['DYNAMIC_STOCKS'])}")
         except Exception as e:
             logger.error(f"Ошибка загрузки акций: {e}")
+    else:
+        # Акции уже есть в памяти
+        total = len(CONFIG['CORE_ASSETS']) + len(CONFIG['DYNAMIC_STOCKS']) + len(CONFIG['FUTURES'])
+        logger.info(f"💾 Используем существующие акции: {total} активов")
     
     # Запуск фонового мониторинга ПОСЛЕ загрузки акций
     if 'monitor_running' not in st.session_state:
         st.session_state.monitor_running = True
         threading.Thread(target=background_monitor, daemon=True).start()
     
-    st.title("📈 Макро-Радар МОЕХ v7.1")
+    st.title("📈 Макро-Радар МОЕХ v7.2")
     st.caption("**Профессиональный трейдинг-терминал с 200+ акциями**")
     st.warning("⚠️ Аналитический инструмент. Все решения принимаете самостоятельно.")
     
