@@ -1,6 +1,7 @@
 streamlit
-   requests
-   pandas
-   feedparser
-   matplotlib
-   pytz
+requests
+pandas
+feedparser
+matplotlib
+pytz
+streamlit-autorefresh
