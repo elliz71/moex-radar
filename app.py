@@ -718,6 +718,10 @@ def background_monitor():
             is_open = now.weekday() < 5 and 10 <= now.hour < 24
             
             if is_open:
+                logger.info(f"💓 Heartbeat | Активов: {len(get_all_assets())} | {now.strftime('%H:%M:%S')}")
+    
+    all_assets = get_all_assets()
+    for ticker, info in all_assets.items():
                 all_assets = get_all_assets()
                 for ticker, info in all_assets.items():
                     try:
