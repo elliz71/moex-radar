@@ -1,0 +1,9 @@
+streamlit
+requests
+pandas
+feedparser
+numpy
+matplotlib
+mplfinance
+pytz
+streamlit-autorefresh
