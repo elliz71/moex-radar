@@ -11,14 +11,13 @@ from datetime import datetime, timedelta
 import pytz
 import threading
 from typing import Optional, Dict, List, Tuple
-import contextlib
 
-# ==========================================
-# ⚙️ ЛОГИРОВАНИЕ И КОНФИГУРАЦИЯ
-# ==========================================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# ==========================================
+# ⚙️ КОНФИГУРАЦИЯ
+# ==========================================
 CONFIG = {
     'ASSETS': {
         'SBER': {'type': 'stock', 'name': 'Сбербанк', 'sector': 'bank', 'keywords': ['сбер', 'банк', 'кредит', 'ипотека', 'дивиденд'], 'volatility': 'medium'},
@@ -48,15 +47,14 @@ CONFIG = {
     'AUTO_LABEL_HOURS': 2
 }
 
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
 # ==========================================
-# 🔒 БЕЗОПАСНАЯ РАБОТА С SQLITE (Исправление #7)
+# 🔒 БЕЗОПАСНАЯ РАБОТА С SQLITE
 # ==========================================
 DB_LOCK = threading.Lock()
 
 def get_db_connection():
-    """Получение соединения с БД с блокировкой"""
     return sqlite3.connect('signals.db', check_same_thread=False, timeout=10)
 
 def init_db():
@@ -81,11 +79,9 @@ def init_db():
             )
         ''')
         
-        # Миграция
         c.execute("PRAGMA table_info(signals)")
         columns = [col[1] for col in c.fetchall()]
-        new_columns = ['outcome', 'pnl_pct', 'max_price', 'min_price', 'hours_elapsed', 'checked', 'exit_reason']
-        for col in new_columns:
+        for col in ['outcome', 'pnl_pct', 'max_price', 'min_price', 'hours_elapsed', 'checked', 'exit_reason']:
             if col not in columns:
                 try:
                     if col in ['pnl_pct', 'max_price', 'min_price', 'hours_elapsed']:
@@ -121,7 +117,6 @@ def init_db():
         conn.close()
 
 def execute_db_query(query, params=None, fetch=False):
-    """Безопасное выполнение запросов с блокировкой"""
     with DB_LOCK:
         conn = get_db_connection()
         try:
@@ -130,20 +125,16 @@ def execute_db_query(query, params=None, fetch=False):
                 c.execute(query, params)
             else:
                 c.execute(query)
-            if fetch:
-                result = c.fetchall()
-            else:
-                result = None
+            result = c.fetchall() if fetch else None
             conn.commit()
             return result
         finally:
             conn.close()
 
 # ==========================================
-# 📊 MOEX API (БЕЗ Streamlit cache для thread-safe)
+# 📊 MOEX API
 # ==========================================
 def fetch_moex_data_raw(ticker: str, asset_type: str) -> Optional[pd.DataFrame]:
-    """Сырая функция без кэша - для фонового потока"""
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -166,7 +157,6 @@ def fetch_moex_data_raw(ticker: str, asset_type: str) -> Optional[pd.DataFrame]:
 
 @st.cache_data(ttl=CONFIG['CACHE_TTL'])
 def get_moex_data(ticker: str, asset_type: str) -> Optional[pd.DataFrame]:
-    """Кэшированная версия - только для UI"""
     return fetch_moex_data_raw(ticker, asset_type)
 
 # ==========================================
@@ -176,9 +166,7 @@ def calculate_atr(df: pd.DataFrame, period: int = None) -> float:
     period = period or CONFIG['ATR_PERIOD']
     if len(df) < period:
         return 0.0
-    high = df['high']
-    low = df['low']
-    close = df['close']
+    high, low, close = df['high'], df['low'], df['close']
     tr1 = high - low
     tr2 = abs(high - close.shift())
     tr3 = abs(low - close.shift())
@@ -241,8 +229,7 @@ def calculate_trade_levels(price, direction, atr, support, resistance, volatilit
 def calculate_position_size(balance, risk_pct, entry, stop):
     if entry <= 0 or stop <= 0 or entry == stop:
         return 0
-    risk_amount = balance * risk_pct
-    return max(int(risk_amount / abs(entry - stop)), 0)
+    return max(int(balance * risk_pct / abs(entry - stop)), 0)
 
 def determine_trade_direction(rsi, price_change, sentiment, support, resistance, price):
     score = 0
@@ -260,7 +247,7 @@ def determine_trade_direction(rsi, price_change, sentiment, support, resistance,
     return 'neutral'
 
 # ==========================================
-# 📰 NLP
+# 📰 NLP-АНАЛИЗ
 # ==========================================
 POSITIVE_WORDS = {'рост', 'повышен', 'увелич', 'прибыл', 'доход', 'дивиденд', 'покуп', 'оптимизм', 
     'успех', 'рекорд', 'превыш', 'прогноз', 'позитив', 'поддерж', 'развит', 'инвест',
@@ -307,7 +294,7 @@ def calculate_forecast_score(signal_data, news_sentiment, historical_data):
     return max(0, min(100, round(score)))
 
 # ==========================================
-# 🤖 АВТОРАЗМЕТКА (ИСПРАВЛЕНО: datetime сравнение)
+# 🤖 АВТОРАЗМЕТКА
 # ==========================================
 def auto_label_signals():
     unchecked = execute_db_query(
@@ -328,7 +315,6 @@ def auto_label_signals():
     for row in unchecked:
         signal = dict(zip(columns, row))
         try:
-            # ИСПРАВЛЕНИЕ #2: Корректный парсинг времени с учетом таймзоны
             signal_time_str = signal['timestamp']
             try:
                 signal_time = datetime.fromisoformat(signal_time_str)
@@ -345,14 +331,12 @@ def auto_label_signals():
             if df is None or len(df) < 5:
                 continue
             
-            # ИСПРАВЛЕНИЕ: Парсим время свечей правильно
             df['time'] = pd.to_datetime(df['begin'])
             try:
                 df['time'] = df['time'].dt.tz_localize(CONFIG['MSK_TZ'])
             except Exception:
-                pass  # Если уже есть tz
+                pass
             
-            # Фильтруем свечи ПОСЛЕ сигнала
             df_after = df[df['time'] > signal_time]
             if len(df_after) == 0:
                 df_after = df.tail(20)
@@ -424,10 +408,13 @@ def background_monitor():
     init_db()
     alerted_candles = {}
     last_label_check = 0
+    last_news_check = 0
     
     while True:
         try:
             current_time = time.time()
+            
+            # === АВТОРАЗМЕТКА каждые 10 минут ===
             if current_time - last_label_check > 600:
                 try:
                     auto_label_signals()
@@ -435,20 +422,22 @@ def background_monitor():
                 except Exception as e:
                     logger.error(f"Ошибка авторазметки: {e}")
             
-            now = datetime.now(CONFIG['MSK_TZ'])
-            is_open = now.weekday() < 5 and 10 <= now.hour < 24
-            
-            if is_open:
-                # Новости с таймаутом (Исправление #10)
+            # === ПАРСИНГ НОВОСТЕЙ каждые 5 минут (ВСЕГДА, не только в торговые часы) ===
+            if current_time - last_news_check > 300:
                 try:
                     feed = feedparser.parse(CONFIG['NEWS_FEED_URL'], request_headers=HEADERS)
-                    if hasattr(feed, 'entries'):
+                    if hasattr(feed, 'entries') and feed.entries:
+                        saved_count = 0
                         for entry in feed.entries[:10]:
                             title = entry.get('title', '')
                             desc = entry.get('summary', '')
                             url = entry.get('link', '')
                             sentiment, tickers, sector, keywords = analyze_news_sentiment(title, desc)
-                            if tickers or sentiment != 0:
+                            
+                            macro_words = ['цб', 'ставк', 'нефть', 'доллар', 'рубль', 'санкц', 'инфляц']
+                            is_macro = any(w in (title + ' ' + desc).lower() for w in macro_words)
+                            
+                            if tickers or (is_macro and abs(sentiment) > 0.1):
                                 execute_db_query(
                                     '''INSERT INTO news_analysis (timestamp, title, url, sentiment_score,
                                        related_tickers, sector_impact, keywords_found)
@@ -456,9 +445,18 @@ def background_monitor():
                                     (datetime.now(CONFIG['MSK_TZ']).isoformat(), title, url, sentiment,
                                      ','.join(tickers), sector, ','.join(keywords))
                                 )
+                                saved_count += 1
+                        
+                        last_news_check = current_time
+                        logger.info(f"📰 Новости обновлены: сохранено {saved_count}")
                 except Exception as e:
-                    logger.error(f"Ошибка новостей: {e}")
-                
+                    logger.error(f"Ошибка парсинга новостей: {e}")
+            
+            # === ТОРГОВЫЙ МОНИТОРИНГ (только во время торгов) ===
+            now = datetime.now(CONFIG['MSK_TZ'])
+            is_open = now.weekday() < 5 and 10 <= now.hour < 24
+            
+            if is_open:
                 for ticker, info in CONFIG['ASSETS'].items():
                     df = fetch_moex_data_raw(ticker, info['type'])
                     if df is not None and len(df) >= 5:
@@ -479,24 +477,22 @@ def background_monitor():
                             support, resistance = find_support_resistance(df)
                             strength = 'strong' if abs(price_change_pct) > 3.0 or rsi < CONFIG['RSI_OVERSOLD'] or rsi > CONFIG['RSI_OVERBOUGHT'] else 'medium'
                             
-                            # Свежий сентимент
                             recent_news = execute_db_query(
                                 'SELECT sentiment_score, related_tickers FROM news_analysis ORDER BY timestamp DESC LIMIT 5',
                                 fetch=True
-                            )
+                            ) or []
                             ticker_sent = 0
                             news_count = 0
                             for row in recent_news:
-                                if ticker in row[1]:
+                                if ticker in (row[1] or ''):
                                     ticker_sent += row[0]
                                     news_count += 1
                             ticker_sent = ticker_sent / max(news_count, 1)
                             
-                            # История
                             hist_rows = execute_db_query(
                                 'SELECT ticker, change_pct FROM signals ORDER BY timestamp DESC LIMIT 50',
                                 fetch=True
-                            )
+                            ) or []
                             historical = [{'ticker': r[0], 'change_pct': r[1]} for r in hist_rows]
                             
                             forecast = calculate_forecast_score(
@@ -548,11 +544,9 @@ def background_monitor():
             time.sleep(30)
 
 # ==========================================
-# 📈 ГРАФИКИ (Исправление #6 - локальный стиль)
+# 📈 ГРАФИКИ
 # ==========================================
 def generate_asset_chart(df, ticker, name):
-    """Генерация графика с изолированным стилем"""
-    # ИСПРАВЛЕНИЕ #6: Используем контекст для изоляции стиля
     with plt.style.context('dark_background'):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 5),
                                        gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
@@ -584,12 +578,10 @@ def generate_asset_chart(df, ticker, name):
         ax2.grid(True, alpha=0.2)
         ax2.set_ylabel('Объем', color='white')
         
-        # Безопасная обработка времени
         try:
             if len(df) > 0:
                 step = max(1, len(df)//8)
-                time_labels = []
-                x_positions = []
+                time_labels, x_positions = [], []
                 for i in range(0, len(df), step):
                     t_str = str(df['begin'].iloc[i])
                     if len(t_str) >= 16:
@@ -653,7 +645,7 @@ def render_quotes_tab():
     with col2:
         sort_by = st.selectbox("Сортировка", ["По имени", "По изменению %", "По объему"], key="qt_sort")
     with col3:
-        if st.button("🔄 Обновить котировки"):
+        if st.button("🔄 Обновить котировки", key="refresh_quotes"):
             st.cache_data.clear()
             st.rerun()
     
@@ -710,7 +702,6 @@ def render_quotes_tab():
                     try:
                         fig = generate_asset_chart(asset['df'], asset['ticker'], asset['name'])
                         st.pyplot(fig)
-                        # ИСПРАВЛЕНИЕ #8: Явное закрытие фигуры
                         plt.close(fig)
                     except Exception as e:
                         st.error(f"Ошибка: {e}")
@@ -740,10 +731,200 @@ def render_quotes_tab():
         st.warning("⚠️ Нет данных. Проверьте подключение.")
 
 # ==========================================
+# 📰 ВКЛАДКА НОВОСТЕЙ (ПОЛНАЯ ПЕРЕРАБОТКА)
+# ==========================================
+def render_news_tab():
+    st.subheader("📰 Новости с аналитикой")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        news_filter = st.selectbox(
+            "Фильтр", 
+            ["Все новости", "Только с тикерами", "Только позитивные", "Только негативные"],
+            key="news_filter"
+        )
+    with col2:
+        news_source = st.selectbox(
+            "Источник",
+            ["РБК (свежие)", "Из базы (история)"],
+            key="news_source"
+        )
+    with col3:
+        if st.button("🔄 Обновить", key="refresh_news"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    st.markdown("---")
+    
+    news_list = []
+    
+    # === ВАРИАНТ 1: Прямая загрузка с РБК ===
+    if news_source == "РБК (свежие)":
+        with st.spinner("Загрузка новостей с РБК..."):
+            try:
+                feed = feedparser.parse(CONFIG['NEWS_FEED_URL'], request_headers=HEADERS)
+                
+                if hasattr(feed, 'entries') and feed.entries:
+                    for entry in feed.entries[:30]:
+                        title = entry.get('title', '')
+                        desc = entry.get('summary', entry.get('description', ''))
+                        url = entry.get('link', '#')
+                        published = entry.get('published', '')
+                        
+                        sentiment, tickers, sector, keywords = analyze_news_sentiment(title, desc)
+                        
+                        macro_keywords = ['цб', 'ставк', 'нефть', 'brent', 'золото', 'gold',
+                                        'доллар', 'рубль', 'санкц', 'инфляц', 'ввп', 'бирж',
+                                        'moex', 'мосбир', 'газпром', 'лукойл', 'сбер', 'яндекс',
+                                        'роснефть', 'полюс', 'opec', 'фрс', 'fed']
+                        
+                        is_macro = any(kw in (title + ' ' + desc).lower() for kw in macro_keywords)
+                        has_tickers = len(tickers) > 0
+                        
+                        if is_macro or has_tickers or abs(sentiment) > 0.2:
+                            news_list.append({
+                                'title': title,
+                                'url': url,
+                                'published': published,
+                                'sentiment': sentiment,
+                                'tickers': tickers,
+                                'sector': sector,
+                                'keywords': keywords,
+                                'source': 'live'
+                            })
+                    
+                    st.success(f"✅ Загружено новостей: {len(news_list)}")
+                    st.caption(f"🕒 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+                else:
+                    st.warning("⚠️ RSS-фид РБК пуст или недоступен. Попробуйте позже.")
+                    st.caption("💡 Возможно, РБК временно ограничил доступ к RSS.")
+                    
+            except Exception as e:
+                st.error(f"❌ Ошибка загрузки: {str(e)}")
+                st.info("💡 Попробуйте переключиться на 'Из базы (история)'")
+    
+    # === ВАРИАНТ 2: Из базы данных ===
+    else:
+        news_rows = execute_db_query(
+            'SELECT * FROM news_analysis ORDER BY timestamp DESC LIMIT 50',
+            fetch=True
+        ) or []
+        news_cols = ['id', 'timestamp', 'title', 'url', 'sentiment', 'tickers', 'sector', 'keywords']
+        
+        for row in news_rows:
+            n = dict(zip(news_cols, row))
+            tickers_str = n['tickers'] if isinstance(n['tickers'], str) else ''
+            tickers = tickers_str.split(',') if tickers_str else []
+            
+            news_list.append({
+                'title': n['title'],
+                'url': n['url'],
+                'published': n['timestamp'],
+                'sentiment': n['sentiment'],
+                'tickers': tickers,
+                'sector': n['sector'],
+                'keywords': n['keywords'].split(',') if isinstance(n['keywords'], str) and n['keywords'] else [],
+                'source': 'db'
+            })
+        
+        if news_list:
+            st.info(f"📊 Показано {len(news_list)} новостей из базы")
+        else:
+            st.warning("⚠️ База пуста. Переключитесь на 'РБК (свежие)' для загрузки.")
+    
+    # === ПРИМЕНЕНИЕ ФИЛЬТРОВ ===
+    if news_filter == "Только с тикерами":
+        news_list = [n for n in news_list if n['tickers']]
+    elif news_filter == "Только позитивные":
+        news_list = [n for n in news_list if n['sentiment'] > 0.2]
+    elif news_filter == "Только негативные":
+        news_list = [n for n in news_list if n['sentiment'] < -0.2]
+    
+    st.markdown("---")
+    
+    # === ОТОБРАЖЕНИЕ ===
+    if not news_list:
+        st.info("📭 Нет новостей, соответствующих фильтру. Попробуйте другой фильтр или обновите.")
+    else:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1: st.metric("Всего", len(news_list))
+        with col2:
+            pos = len([n for n in news_list if n['sentiment'] > 0.2])
+            st.metric("🟢 Позитивных", pos)
+        with col3:
+            neg = len([n for n in news_list if n['sentiment'] < -0.2])
+            st.metric("🔴 Негативных", neg)
+        with col4:
+            neu = len(news_list) - pos - neg
+            st.metric("🟡 Нейтральных", neu)
+        
+        st.markdown("---")
+        
+        avg_sent = sum(n['sentiment'] for n in news_list) / len(news_list)
+        if avg_sent > 0.2:
+            market_mood = "🟢 Рынок настроен ПОЗИТИВНО"
+            mood_color = "green"
+        elif avg_sent < -0.2:
+            market_mood = "🔴 Рынок настроен НЕГАТИВНО"
+            mood_color = "red"
+        else:
+            market_mood = "🟡 Рынок в НЕЙТРАЛЬНОЙ зоне"
+            mood_color = "orange"
+        
+        st.markdown(f"**Настроение рынка:** <span style='color:{mood_color}; font-size:18px;'>{market_mood} (сентимент: {avg_sent:+.2f})</span>", unsafe_allow_html=True)
+        st.markdown("---")
+        
+        for n in news_list:
+            if n['sentiment'] > 0.2:
+                sent_emoji = "🟢"
+                sent_text = f"Позитив ({n['sentiment']:+.2f})"
+            elif n['sentiment'] < -0.2:
+                sent_emoji = "🔴"
+                sent_text = f"Негатив ({n['sentiment']:+.2f})"
+            else:
+                sent_emoji = "🟡"
+                sent_text = f"Нейтрально ({n['sentiment']:+.2f})"
+            
+            with st.container():
+                st.markdown(f"### {sent_emoji} [{n['title']}]({n['url']})")
+                
+                meta_parts = [f"**Сентимент:** {sent_text}"]
+                
+                if n['tickers']:
+                    tickers_badges = ' '.join([f'`{t}`' for t in n['tickers']])
+                    meta_parts.append(f"**Тикеры:** {tickers_badges}")
+                
+                if n['sector'] != 'general':
+                    meta_parts.append(f"**Сектор:** {n['sector']}")
+                
+                if n['published']:
+                    try:
+                        if 'T' in str(n['published']):
+                            pub_time = datetime.fromisoformat(str(n['published']).replace('Z', '+00:00'))
+                            meta_parts.append(f"🕒 {pub_time.strftime('%d.%m %H:%M')}")
+                        else:
+                            meta_parts.append(f"🕒 {str(n['published'])[:16]}")
+                    except Exception:
+                        meta_parts.append(f"🕒 {str(n['published'])}")
+                
+                if n['source'] == 'db':
+                    meta_parts.append("💾 Из базы")
+                else:
+                    meta_parts.append("📡 Live")
+                
+                st.caption(" • ".join(meta_parts))
+                
+                if n['keywords']:
+                    keywords_str = ', '.join(n['keywords'][:5])
+                    st.caption(f"🔑 Ключевые: {keywords_str}")
+                
+                st.divider()
+
+# ==========================================
 # 🎨 ГЛАВНЫЙ ИНТЕРФЕЙС
 # ==========================================
 def main():
-    st.set_page_config(page_title="Макро-Радар МОЕХ v5.1", page_icon="📈", layout="wide")
+    st.set_page_config(page_title="Макро-Радар МОЕХ v5.2", page_icon="📈", layout="wide")
     
     st.markdown("""
     <style>
@@ -756,14 +937,13 @@ def main():
     </style>
     """, unsafe_allow_html=True)
     
-    # Запуск монитора (один раз)
     if 'monitor_running' not in st.session_state:
         st.session_state.monitor_running = True
         threading.Thread(target=background_monitor, daemon=True).start()
     
     init_db()
     
-    st.title("📈 Макро-Радар МОЕХ v5.1")
+    st.title("📈 Макро-Радар МОЕХ v5.2")
     st.warning("⚠️ Аналитический инструмент. Все решения принимаете самостоятельно.")
     
     now = datetime.now(CONFIG['MSK_TZ'])
@@ -771,7 +951,6 @@ def main():
     market_status = "🟢 Торги идут" if is_open else "🔴 Закрыт"
     st.caption(f"**Статус:** {market_status} | **Время:** {now.strftime('%H:%M:%S')}")
     
-    # Загрузка данных
     signals_rows = execute_db_query('SELECT * FROM signals ORDER BY timestamp DESC LIMIT 200', fetch=True) or []
     sig_cols = ['id', 'timestamp', 'ticker', 'name', 'type', 'sector', 'price', 'change_pct',
               'volume', 'avg_volume', 'rsi', 'atr', 'strength', 'news_sentiment', 'forecast_score',
@@ -804,13 +983,12 @@ def main():
     
     st.markdown("---")
     
-    # ИСПРАВЛЕНИЕ #1: Автообновление через st_autorefresh
+    # Автообновление с fallback
     try:
         from streamlit_autorefresh import st_autorefresh
         st_autorefresh(interval=30000, key="auto_refresh")
     except ImportError:
-        # Fallback: кнопка обновления
-        if st.button("🔄 Обновить данные (авто каждые 30 сек)"):
+        if st.button("🔄 Обновить данные (каждые 30 сек вручную)"):
             st.rerun()
     
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -867,7 +1045,6 @@ def main():
                     for s in exit_sigs:
                         st.markdown(f'<div class="exit-signal">{s}</div>', unsafe_allow_html=True)
                 
-                # ИСПРАВЛЕНИЕ #5: Закрываем div
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.divider()
     
@@ -913,7 +1090,6 @@ def main():
                         st.markdown(f"<span style='color:{color}; font-size:18px;'>{cp:.2f}</span>", unsafe_allow_html=True)
                     with c3:
                         st.markdown(f"<span style='color:{color}; font-size:18px;'>{pnl:+.2f}%</span>", unsafe_allow_html=True)
-                    # ИСПРАВЛЕНИЕ #5: закрываем div
                     st.markdown('</div>', unsafe_allow_html=True)
                     st.divider()
     
@@ -931,7 +1107,6 @@ def main():
                 avg_loss = sum(s['pnl_pct'] for s in losses) / max(len(losses), 1)
                 st.metric("Ср. убыток", f"{avg_loss:+.2f}%")
             with c4:
-                # ИСПРАВЛЕНИЕ #4: Безопасный Profit Factor
                 total_wins = sum(s['pnl_pct'] for s in wins)
                 total_losses = sum(s['pnl_pct'] for s in losses)
                 if abs(total_losses) < 0.01:
@@ -960,20 +1135,7 @@ def main():
             st.dataframe(stats.sort_values('Win Rate %', ascending=False), use_container_width=True)
     
     with tab6:
-        st.subheader("📰 Новости")
-        news_rows = execute_db_query('SELECT * FROM news_analysis ORDER BY timestamp DESC LIMIT 20', fetch=True) or []
-        news_cols = ['id', 'timestamp', 'title', 'url', 'sentiment', 'tickers', 'sector', 'keywords']
-        news = [dict(zip(news_cols, r)) for r in news_rows]
-        
-        if not news:
-            st.info("Загрузка...")
-        else:
-            for n in news[:10]:
-                tickers_str = n['tickers'] if isinstance(n['tickers'], str) else ''
-                em = "🟢" if n['sentiment'] > 0.2 else "🔴" if n['sentiment'] < -0.2 else "🟡"
-                st.markdown(f"{em} **[{n['title']}]({n['url']})**")
-                st.caption(f"Сентимент: {n['sentiment']:+.2f} | {tickers_str}")
-                st.divider()
+        render_news_tab()
     
     with tab7:
         st.subheader("📜 История")
@@ -1006,7 +1168,6 @@ def main():
                         c = "green" if sig['pnl_pct'] >= 0 else "red"
                         st.markdown(f"<span style='color:{c};'>{sig['pnl_pct']:+.2f}%</span>", unsafe_allow_html=True)
                 with c4: st.markdown(f"**{sig['outcome']}**")
-                # ИСПРАВЛЕНИЕ #5: закрываем div
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.divider()
 
