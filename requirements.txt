@@ -5,3 +5,5 @@ feedparser
 matplotlib
 pytz
 streamlit-autorefresh
+mplfinance
+numpy
