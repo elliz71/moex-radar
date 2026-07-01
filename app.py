@@ -6,6 +6,8 @@ import time
 import sqlite3
 import logging
 import numpy as np
+import io
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import pytz
 import threading
@@ -45,61 +47,37 @@ CONFIG = {
     'MIN_RISK_REWARD': 2.0,
     'STOP_LOSS_ATR_MULTIPLIER': 1.5,
     'TAKE_PROFIT_LEVELS': [1.0, 2.0, 3.0],
-    'AUTO_LABEL_HOURS': 2  # Через сколько часов проверять сигнал
+    'AUTO_LABEL_HOURS': 2
 }
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
 # ==========================================
-# 🗄️ БАЗА ДАННЫХ (расширенная)
+# 🗄️ БАЗА ДАННЫХ
 # ==========================================
 def init_db():
     conn = sqlite3.connect('signals.db', check_same_thread=False)
     c = conn.cursor()
     
-    # Таблица сигналов с полями для авторазметки
     c.execute('''
         CREATE TABLE IF NOT EXISTS signals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            ticker TEXT,
-            name TEXT,
-            asset_type TEXT,
-            sector TEXT,
-            price REAL,
-            change_pct REAL,
-            volume REAL,
-            avg_volume REAL,
-            rsi REAL,
-            atr REAL,
-            signal_strength TEXT,
-            news_sentiment REAL,
-            forecast_score REAL,
-            entry_price REAL,
-            stop_loss REAL,
-            take_profit_1 REAL,
-            take_profit_2 REAL,
-            take_profit_3 REAL,
-            risk_reward REAL,
-            position_size REAL,
-            trade_direction TEXT,
-            support_level REAL,
-            resistance_level REAL,
-            -- Новые поля для авторазметки
-            outcome TEXT DEFAULT 'pending',
-            pnl_pct REAL DEFAULT 0,
-            max_price REAL DEFAULT 0,
-            min_price REAL DEFAULT 0,
-            hours_elapsed REAL DEFAULT 0,
-            checked INTEGER DEFAULT 0,
+            timestamp TEXT, ticker TEXT, name TEXT, asset_type TEXT, sector TEXT,
+            price REAL, change_pct REAL, volume REAL, avg_volume REAL,
+            rsi REAL, atr REAL, signal_strength TEXT, news_sentiment REAL,
+            forecast_score REAL, entry_price REAL, stop_loss REAL,
+            take_profit_1 REAL, take_profit_2 REAL, take_profit_3 REAL,
+            risk_reward REAL, position_size REAL, trade_direction TEXT,
+            support_level REAL, resistance_level REAL,
+            outcome TEXT DEFAULT 'pending', pnl_pct REAL DEFAULT 0,
+            max_price REAL DEFAULT 0, min_price REAL DEFAULT 0,
+            hours_elapsed REAL DEFAULT 0, checked INTEGER DEFAULT 0,
             exit_reason TEXT DEFAULT ''
         )
     ''')
     
-    # Проверяем, есть ли новые колонки (для миграции старых БД)
     c.execute("PRAGMA table_info(signals)")
     columns = [col[1] for col in c.fetchall()]
-    
     new_columns = ['outcome', 'pnl_pct', 'max_price', 'min_price', 'hours_elapsed', 'checked', 'exit_reason']
     for col in new_columns:
         if col not in columns:
@@ -110,41 +88,26 @@ def init_db():
                     c.execute(f'ALTER TABLE signals ADD COLUMN {col} INTEGER DEFAULT 0')
                 else:
                     c.execute(f'ALTER TABLE signals ADD COLUMN {col} TEXT DEFAULT ""')
-                logger.info(f"Добавлена колонка: {col}")
             except Exception as e:
                 logger.warning(f"Не удалось добавить колонку {col}: {e}")
     
     c.execute('''
         CREATE TABLE IF NOT EXISTS news_analysis (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            title TEXT,
-            url TEXT,
-            sentiment_score REAL,
-            related_tickers TEXT,
-            sector_impact TEXT,
-            keywords_found TEXT
+            timestamp TEXT, title TEXT, url TEXT,
+            sentiment_score REAL, related_tickers TEXT,
+            sector_impact TEXT, keywords_found TEXT
         )
     ''')
     
     c.execute('''
         CREATE TABLE IF NOT EXISTS trade_ideas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            ticker TEXT,
-            name TEXT,
-            direction TEXT,
-            entry_price REAL,
-            stop_loss REAL,
-            take_profit_1 REAL,
-            take_profit_2 REAL,
-            take_profit_3 REAL,
-            risk_reward REAL,
-            position_size REAL,
-            confidence REAL,
-            status TEXT,
-            exit_signal TEXT,
-            exit_timestamp TEXT
+            timestamp TEXT, ticker TEXT, name TEXT, direction TEXT,
+            entry_price REAL, stop_loss REAL, take_profit_1 REAL,
+            take_profit_2 REAL, take_profit_3 REAL, risk_reward REAL,
+            position_size REAL, confidence REAL, status TEXT,
+            exit_signal TEXT, exit_timestamp TEXT
         )
     ''')
     
@@ -154,10 +117,11 @@ def init_db():
 def save_signal(conn, signal_data: Dict):
     c = conn.cursor()
     c.execute('''
-        INSERT INTO signals (timestamp, ticker, name, asset_type, sector, price, change_pct, volume, avg_volume, 
-                           rsi, atr, signal_strength, news_sentiment, forecast_score, entry_price, stop_loss, 
-                           take_profit_1, take_profit_2, take_profit_3, risk_reward, position_size, 
-                           trade_direction, support_level, resistance_level)
+        INSERT INTO signals (timestamp, ticker, name, asset_type, sector, price, change_pct,
+                           volume, avg_volume, rsi, atr, signal_strength, news_sentiment,
+                           forecast_score, entry_price, stop_loss, take_profit_1, take_profit_2,
+                           take_profit_3, risk_reward, position_size, trade_direction,
+                           support_level, resistance_level)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         signal_data['timestamp'], signal_data['ticker'], signal_data['name'], signal_data['type'],
@@ -176,8 +140,8 @@ def save_signal(conn, signal_data: Dict):
 def save_trade_idea(conn, idea_data: Dict):
     c = conn.cursor()
     c.execute('''
-        INSERT INTO trade_ideas (timestamp, ticker, name, direction, entry_price, stop_loss, 
-                                take_profit_1, take_profit_2, take_profit_3, risk_reward, 
+        INSERT INTO trade_ideas (timestamp, ticker, name, direction, entry_price, stop_loss,
+                                take_profit_1, take_profit_2, take_profit_3, risk_reward,
                                 position_size, confidence, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
@@ -191,7 +155,7 @@ def save_trade_idea(conn, idea_data: Dict):
 def save_news_analysis(conn, news_data: Dict):
     c = conn.cursor()
     c.execute('''
-        INSERT INTO news_analysis (timestamp, title, url, sentiment_score, related_tickers, 
+        INSERT INTO news_analysis (timestamp, title, url, sentiment_score, related_tickers,
                                   sector_impact, keywords_found)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', (
@@ -208,7 +172,7 @@ def load_signals(conn, limit: int = 200, include_pending: bool = True) -> List[D
     else:
         c.execute('SELECT * FROM signals WHERE outcome != "pending" ORDER BY timestamp DESC LIMIT ?', (limit,))
     
-    columns = ['id', 'timestamp', 'ticker', 'name', 'type', 'sector', 'price', 'change_pct', 
+    columns = ['id', 'timestamp', 'ticker', 'name', 'type', 'sector', 'price', 'change_pct',
                'volume', 'avg_volume', 'rsi', 'atr', 'strength', 'news_sentiment', 'forecast_score',
                'entry_price', 'stop_loss', 'take_profit_1', 'take_profit_2', 'take_profit_3',
                'risk_reward', 'position_size', 'trade_direction', 'support_level', 'resistance_level',
@@ -230,14 +194,13 @@ def load_news_analysis(conn, limit: int = 20) -> List[Dict]:
     return [dict(zip(columns, row)) for row in c.fetchall()]
 
 def get_unchecked_signals(conn) -> List[Dict]:
-    """Получить сигналы, которые еще не проверены и прошло достаточно времени"""
     c = conn.cursor()
     c.execute('''
-        SELECT * FROM signals 
+        SELECT * FROM signals
         WHERE checked = 0 AND trade_direction != 'neutral'
         ORDER BY timestamp ASC
     ''')
-    columns = ['id', 'timestamp', 'ticker', 'name', 'type', 'sector', 'price', 'change_pct', 
+    columns = ['id', 'timestamp', 'ticker', 'name', 'type', 'sector', 'price', 'change_pct',
                'volume', 'avg_volume', 'rsi', 'atr', 'strength', 'news_sentiment', 'forecast_score',
                'entry_price', 'stop_loss', 'take_profit_1', 'take_profit_2', 'take_profit_3',
                'risk_reward', 'position_size', 'trade_direction', 'support_level', 'resistance_level',
@@ -245,35 +208,25 @@ def get_unchecked_signals(conn) -> List[Dict]:
     return [dict(zip(columns, row)) for row in c.fetchall()]
 
 def update_signal_outcome(conn, signal_id: int, outcome_data: Dict):
-    """Обновить результат сигнала"""
     c = conn.cursor()
     c.execute('''
-        UPDATE signals 
-        SET outcome = ?, pnl_pct = ?, max_price = ?, min_price = ?, 
+        UPDATE signals
+        SET outcome = ?, pnl_pct = ?, max_price = ?, min_price = ?,
             hours_elapsed = ?, checked = 1, exit_reason = ?
         WHERE id = ?
     ''', (
-        outcome_data['outcome'],
-        outcome_data['pnl_pct'],
-        outcome_data['max_price'],
-        outcome_data['min_price'],
-        outcome_data['hours_elapsed'],
-        outcome_data['exit_reason'],
-        signal_id
+        outcome_data['outcome'], outcome_data['pnl_pct'], outcome_data['max_price'],
+        outcome_data['min_price'], outcome_data['hours_elapsed'],
+        outcome_data['exit_reason'], signal_id
     ))
     conn.commit()
 
 # ==========================================
-# 🤖 АВТОРАЗМЕТКА СИГНАЛОВ
+# 🤖 АВТОРАЗМЕТКА
 # ==========================================
 def auto_label_signals():
-    """
-    Автоматическая проверка сигналов через N часов.
-    Определяет: сработал ли стоп, достигнута ли цель, или сигнал в подвешенном состоянии.
-    """
     conn = init_db()
     unchecked = get_unchecked_signals(conn)
-    
     if not unchecked:
         return
     
@@ -284,22 +237,18 @@ def auto_label_signals():
             signal_time = datetime.fromisoformat(signal['timestamp'])
             hours_elapsed = (now - signal_time).total_seconds() / 3600
             
-            # Проверяем только если прошло достаточно времени
             if hours_elapsed < CONFIG['AUTO_LABEL_HOURS']:
                 continue
             
-            # Получаем данные за период после сигнала
             df = get_moex_data(signal['ticker'], signal['type'])
             if df is None or len(df) < 5:
                 continue
             
-            # Находим свечи после сигнала
             signal_time_str = signal['timestamp']
             df['time'] = pd.to_datetime(df['begin'])
             df_after = df[df['time'] > signal_time_str]
             
             if len(df_after) == 0:
-                # Если нет данных после сигнала, используем все доступные
                 df_after = df
             
             entry_price = signal['entry_price']
@@ -309,7 +258,6 @@ def auto_label_signals():
             tp3 = signal['take_profit_3']
             direction = signal['trade_direction']
             
-            # Максимальная и минимальная цена за период
             max_price = df_after['high'].max()
             min_price = df_after['low'].min()
             final_price = df_after['close'].iloc[-1]
@@ -319,12 +267,10 @@ def auto_label_signals():
             pnl_pct = 0.0
             
             if direction == 'long':
-                # Проверяем, сработал ли стоп
                 if min_price <= stop_loss:
                     outcome = 'loss'
                     exit_reason = 'stop_loss'
                     pnl_pct = (stop_loss - entry_price) / entry_price * 100
-                # Проверяем цели
                 elif max_price >= tp3:
                     outcome = 'win'
                     exit_reason = 'target_3'
@@ -338,7 +284,6 @@ def auto_label_signals():
                     exit_reason = 'target_1'
                     pnl_pct = (tp1 - entry_price) / entry_price * 100
                 else:
-                    # Позиция все еще открыта
                     pnl_pct = (final_price - entry_price) / entry_price * 100
                     if pnl_pct > 1.0:
                         outcome = 'partial_win'
@@ -379,7 +324,6 @@ def auto_label_signals():
                         outcome = 'neutral'
                         exit_reason = 'sideways'
             
-            # Сохраняем результат
             outcome_data = {
                 'outcome': outcome,
                 'pnl_pct': round(pnl_pct, 2),
@@ -396,10 +340,10 @@ def auto_label_signals():
             logger.error(f"Ошибка разметки сигнала {signal['ticker']}: {e}")
             continue
         
-        time.sleep(1)  # Пауза между запросами
+        time.sleep(1)
 
 # ==========================================
-# 📊 ТЕХНИЧЕСКИЙ АНАЛИЗ (без изменений)
+# 📊 ТЕХНИЧЕСКИЙ АНАЛИЗ
 # ==========================================
 def calculate_atr(df: pd.DataFrame, period: int = None) -> float:
     period = period or CONFIG['ATR_PERIOD']
@@ -505,16 +449,67 @@ def determine_trade_direction(rsi: float, price_change: float, sentiment: float,
         return 'neutral'
 
 # ==========================================
-# 📰 NLP-АНАЛИЗ НОВОСТЕЙ (без изменений)
+# 📈 ГРАФИКИ ДЛЯ ВКЛАДКИ КОТИРОВОК
+# ==========================================
+def generate_asset_chart(df: pd.DataFrame, ticker: str, name: str) -> plt.Figure:
+    """Генерация графика для конкретного актива с ценой и объемами"""
+    plt.style.use('dark_background')
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 5),
+                                   gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+    fig.patch.set_facecolor('#0e1117')
+    ax1.set_facecolor('#0e1117')
+    ax2.set_facecolor('#0e1117')
+    
+    x = range(len(df))
+    
+    # Свечной график (упрощенно как линия с максимумами/минимумами)
+    ax1.plot(x, df['close'], color='#00ffcc', linewidth=2, label='Цена закрытия')
+    ax1.fill_between(x, df['low'], df['high'], alpha=0.2, color='#00ffcc', label='Диапазон')
+    
+    # Добавляем скользящую среднюю
+    if len(df) >= 20:
+        sma20 = df['close'].rolling(window=20).mean()
+        ax1.plot(x, sma20, color='#ffaa00', linewidth=1.5, alpha=0.7, label='SMA 20')
+    
+    # Уровни поддержки/сопротивления
+    if len(df) >= 20:
+        recent = df.tail(20)
+        support = recent['low'].min()
+        resistance = recent['high'].max()
+        ax1.axhline(y=support, color='#00ff00', linestyle='--', alpha=0.5, linewidth=1, label=f'Поддержка: {support:.2f}')
+        ax1.axhline(y=resistance, color='#ff4444', linestyle='--', alpha=0.5, linewidth=1, label=f'Сопротивление: {resistance:.2f}')
+    
+    ax1.set_title(f'{name} ({ticker}) - 10-минутный график', color='white', fontsize=14, pad=10)
+    ax1.grid(True, alpha=0.2)
+    ax1.set_ylabel('Цена', color='white')
+    ax1.legend(loc='upper left', fontsize=8, facecolor='#262730')
+    
+    # Объемы
+    colors = ['#26a69a' if df['close'].iloc[i] >= df['open'].iloc[i] else '#ef5350' for i in range(len(df))]
+    ax2.bar(x, df['volume'], color=colors, alpha=0.8)
+    ax2.grid(True, alpha=0.2)
+    ax2.set_ylabel('Объем', color='white')
+    
+    # Подписи времени
+    if len(df) > 0:
+        time_labels = [df['begin'].iloc[i][11:16] for i in range(0, len(df), max(1, len(df)//10))]
+        x_positions = range(0, len(df), max(1, len(df)//10))
+        plt.xticks(list(x_positions)[:len(time_labels)], time_labels, rotation=45, color='white', fontsize=8)
+    
+    plt.tight_layout()
+    return fig
+
+# ==========================================
+# 📰 NLP-АНАЛИЗ
 # ==========================================
 POSITIVE_WORDS = {
-    'рост', 'повышен', 'увелич', 'прибыл', 'доход', 'дивиденд', 'покуп', 'оптимизм', 
+    'рост', 'повышен', 'увелич', 'прибыл', 'доход', 'дивиденд', 'покуп', 'оптимизм',
     'успех', 'рекорд', 'превыш', 'прогноз', 'позитив', 'поддерж', 'развит', 'инвест',
     'сделк', 'партнер', 'экспорт', 'спрос', 'дефицит', 'подорожан', 'укрепл'
 }
 
 NEGATIVE_WORDS = {
-    'пад', 'снижен', 'убыт', 'потерь', 'рис', 'опас', 'негатив', 'проблем', 
+    'пад', 'снижен', 'убыт', 'потерь', 'рис', 'опас', 'негатив', 'проблем',
     'криз', 'санкц', 'огранич', 'запрет', 'штраф', 'суд', 'расслед', 'отказ',
     'задерж', 'авар', 'пожар', 'конфликт', 'войн', 'эскал', 'инфляц', 'рецесс',
     'девальв', 'обвал', 'паник', 'распродаж', 'давлен', 'сниж', 'коррекц'
@@ -602,7 +597,7 @@ def is_market_open() -> bool:
     return now.weekday() < 5 and 10 <= now.hour < 24
 
 # ==========================================
-# 🤖 ФОНОВЫЙ МОНИТОРИНГ (обновленный)
+# 🤖 ФОНОВЫЙ МОНИТОРИНГ
 # ==========================================
 def background_monitor():
     conn = init_db()
@@ -611,9 +606,8 @@ def background_monitor():
     
     while True:
         try:
-            # АВТОРАЗМЕТКА: проверяем каждые 10 минут
             current_time = time.time()
-            if current_time - last_label_check > 600:  # 10 минут
+            if current_time - last_label_check > 600:
                 try:
                     auto_label_signals()
                     last_label_check = current_time
@@ -621,7 +615,6 @@ def background_monitor():
                     logger.error(f"Ошибка авторазметки: {e}")
             
             if is_market_open():
-                # Парсинг новостей
                 try:
                     feed = feedparser.parse(CONFIG['NEWS_FEED_URL'])
                     for entry in feed.entries[:10]:
@@ -639,7 +632,6 @@ def background_monitor():
                 except Exception as e:
                     logger.error(f"Ошибка парсинга новостей: {e}")
                 
-                # Мониторинг цен
                 for ticker, info in CONFIG['ASSETS'].items():
                     df = get_moex_data(ticker, info['type'])
                     if df is not None and len(df) >= 5:
@@ -673,18 +665,18 @@ def background_monitor():
                             
                             historical = load_signals(conn, limit=50)
                             forecast = calculate_forecast_score(
-                                {'ticker': ticker, 'change_pct': price_change_pct, 'volume': current_volume, 
+                                {'ticker': ticker, 'change_pct': price_change_pct, 'volume': current_volume,
                                  'avg_volume': avg_volume, 'rsi': rsi},
                                 ticker_news_sentiment, historical
                             )
                             
                             direction = determine_trade_direction(
-                                rsi, price_change_pct, ticker_news_sentiment, 
+                                rsi, price_change_pct, ticker_news_sentiment,
                                 support, resistance, current_close
                             )
                             
                             trade_levels = calculate_trade_levels(
-                                current_close, direction, atr, support, resistance, 
+                                current_close, direction, atr, support, resistance,
                                 info.get('volatility', 'medium')
                             )
                             
@@ -734,10 +726,251 @@ def background_monitor():
             time.sleep(30)
 
 # ==========================================
-# 🎨 ИНТЕРФЕЙС (обновленный с аналитикой)
+# 🎨 ИНТЕРФЕЙС (Версия 5.0 с котировками)
 # ==========================================
+def generate_exit_signals(current_price: float, entry: float, stop_loss: float, tp1: float, tp2: float, tp3: float, direction: str, rsi: float) -> List[str]:
+    signals = []
+    if direction == 'long':
+        if current_price <= stop_loss:
+            signals.append("🔴 СТОП-ЛОСС: Цена достигла уровня стопа.")
+        if current_price >= tp1:
+            signals.append(f"🟡 ЦЕЛЬ 1 ДОСТИГНУТА ({tp1:.2f}): Зафиксируйте 1/3 позиции.")
+        if current_price >= tp2:
+            signals.append(f"🟢 ЦЕЛЬ 2 ДОСТИГНУТА ({tp2:.2f}): Зафиксируйте еще 1/3.")
+        if current_price >= tp3:
+            signals.append(f"🎯 ЦЕЛЬ 3 ДОСТИГНУТА ({tp3:.2f}): Полностью закрывайте позицию.")
+        if rsi > CONFIG['RSI_OVERBOUGHT'] and current_price > entry * 1.05:
+            signals.append(f"⚠️ RSI ПЕРЕКУПЛЕННОСТЬ ({rsi:.1f})")
+    elif direction == 'short':
+        if current_price >= stop_loss:
+            signals.append("🔴 СТОП-ЛОСС: Цена достигла уровня стопа.")
+        if current_price <= tp1:
+            signals.append(f"🟡 ЦЕЛЬ 1 ДОСТИГНУТА ({tp1:.2f})")
+        if current_price <= tp2:
+            signals.append(f"🟢 ЦЕЛЬ 2 ДОСТИГНУТА ({tp2:.2f})")
+        if current_price <= tp3:
+            signals.append(f"🎯 ЦЕЛЬ 3 ДОСТИГНУТА ({tp3:.2f})")
+        if rsi < CONFIG['RSI_OVERSOLD'] and current_price < entry * 0.95:
+            signals.append(f"⚠️ RSI ПЕРЕПРОДАННОСТЬ ({rsi:.1f})")
+    return signals
+
+def render_quotes_tab():
+    """Рендер вкладки с котировками и графиками"""
+    st.subheader("📈 Текущие котировки и графики")
+    
+    st.info("💡 Графики обновляются автоматически. Зеленые столбики объема — рост, красные — падение. Пунктирные линии — уровни поддержки/сопротивления.")
+    
+    # Фильтр по типу актива
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        show_type = st.selectbox("Показать", ["Все активы", "Только акции", "Только фьючерсы"])
+    with col2:
+        sort_by = st.selectbox("Сортировка", ["По имени", "По изменению %", "По объему"])
+    with col3:
+        chart_size = st.selectbox("Размер графиков", ["Компактный", "Большой"])
+    
+    st.markdown("---")
+    
+    # Получаем данные по всем активам
+    assets_data = []
+    progress_bar = st.progress(0)
+    total_assets = len(CONFIG['ASSETS'])
+    
+    for i, (ticker, info) in enumerate(CONFIG['ASSETS'].items()):
+        df = get_moex_data(ticker, info['type'])
+        if df is not None and len(df) > 0:
+            current_price = df['close'].iloc[-1]
+            prev_price = df['close'].iloc[-2] if len(df) > 1 else current_price
+            change_pct = ((current_price - prev_price) / prev_price) * 100
+            current_volume = df['volume'].iloc[-1]
+            
+            assets_data.append({
+                'ticker': ticker,
+                'name': info['name'],
+                'type': info['type'],
+                'sector': info['sector'],
+                'price': current_price,
+                'change_pct': change_pct,
+                'volume': current_volume,
+                'df': df
+            })
+        
+        progress_bar.progress((i + 1) / total_assets)
+    
+    progress_bar.empty()
+    
+    # Фильтрация
+    if show_type == "Только акции":
+        assets_data = [a for a in assets_data if a['type'] == 'stock']
+    elif show_type == "Только фьючерсы":
+        assets_data = [a for a in assets_data if a['type'] == 'futures']
+    
+    # Сортировка
+    if sort_by == "По изменению %":
+        assets_data.sort(key=lambda x: x['change_pct'], reverse=True)
+    elif sort_by == "По объему":
+        assets_data.sort(key=lambda x: x['volume'], reverse=True)
+    else:
+        assets_data.sort(key=lambda x: x['name'])
+    
+    # Общая статистика
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Всего активов", len(assets_data))
+    with col2:
+        gainers = len([a for a in assets_data if a['change_pct'] > 0])
+        st.metric("Растущих", f"{gainers} 🚀")
+    with col3:
+        losers = len([a for a in assets_data if a['change_pct'] < 0])
+        st.metric("Падающих", f"{losers} 🩸")
+    with col4:
+        avg_change = sum(a['change_pct'] for a in assets_data) / max(len(assets_data), 1)
+        avg_color = "green" if avg_change >= 0 else "red"
+        st.markdown(f"**Среднее изменение**")
+        st.markdown(f"<span style='color:{avg_color}; font-size:24px;'>{avg_change:+.2f}%</span>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Разделение на акции и фьючерсы
+    stocks = [a for a in assets_data if a['type'] == 'stock']
+    futures = [a for a in assets_data if a['type'] == 'futures']
+    
+    # График размера
+    figsize = (10, 4) if chart_size == "Компактный" else (14, 6)
+    
+    # === АКЦИИ ===
+    if stocks and show_type != "Только фьючерсы":
+        st.markdown("### 🏭 Акции РФ")
+        
+        # Таблица сводка
+        with st.expander("📊 Сводная таблица акций", expanded=False):
+            table_data = []
+            for a in stocks:
+                table_data.append({
+                    'Тикер': a['ticker'],
+                    'Компания': a['name'],
+                    'Сектор': a['sector'],
+                    'Цена': f"{a['price']:.2f}",
+                    'Изм. %': f"{a['change_pct']:+.2f}%",
+                    'Объем': f"{a['volume']:,.0f}"
+                })
+            st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+        
+        # Графики
+        for asset in stocks:
+            with st.container():
+                col1, col2, col3 = st.columns([1, 2, 1])
+                
+                with col1:
+                    emoji = "🚀" if asset['change_pct'] > 0 else "🩸" if asset['change_pct'] < 0 else "⚖️"
+                    st.markdown(f"## {emoji} {asset['name']}")
+                    st.markdown(f"**{asset['ticker']}** | {asset['sector']}")
+                    
+                    color = "green" if asset['change_pct'] >= 0 else "red"
+                    st.markdown(f"<span style='color:{color}; font-size:28px; font-weight:bold;'>{asset['price']:.2f} ₽</span>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color:{color}; font-size:20px;'>{asset['change_pct']:+.2f}%</span>", unsafe_allow_html=True)
+                    
+                    st.markdown(f"**Объем:** {asset['volume']:,.0f} шт")
+                
+                with col2:
+                    try:
+                        fig = generate_asset_chart(asset['df'], asset['ticker'], asset['name'])
+                        st.pyplot(fig)
+                        plt.close(fig)
+                    except Exception as e:
+                        st.error(f"Ошибка графика: {e}")
+                
+                with col3:
+                    # Быстрые индикаторы
+                    rsi = calculate_rsi(asset['df'])
+                    atr = calculate_atr(asset['df'])
+                    
+                    if rsi < CONFIG['RSI_OVERSOLD']:
+                        st.success(f"📉 **RSI: {rsi:.1f}**\nПерепроданность")
+                    elif rsi > CONFIG['RSI_OVERBOUGHT']:
+                        st.error(f"📈 **RSI: {rsi:.1f}**\nПерекупленность")
+                    else:
+                        st.info(f"⚖️ **RSI: {rsi:.1f}**\nНорма")
+                    
+                    st.metric("ATR (волатильность)", f"{atr:.2f}")
+                    
+                    # Ближайшие уровни
+                    if len(asset['df']) >= 20:
+                        recent = asset['df'].tail(20)
+                        support = recent['low'].min()
+                        resistance = recent['high'].max()
+                        st.markdown(f"**Поддержка:** {support:.2f}")
+                        st.markdown(f"**Сопротивление:** {resistance:.2f}")
+                
+                st.markdown("---")
+    
+    # === ФЬЮЧЕРСЫ ===
+    if futures and show_type != "Только акции":
+        st.markdown("### 🌍 Сырье и Валюта (Фьючерсы)")
+        
+        with st.expander("📊 Сводная таблица фьючерсов", expanded=False):
+            table_data = []
+            for a in futures:
+                table_data.append({
+                    'Тикер': a['ticker'],
+                    'Актив': a['name'],
+                    'Сектор': a['sector'],
+                    'Цена': f"{a['price']:.2f}",
+                    'Изм. %': f"{a['change_pct']:+.2f}%",
+                    'Объем': f"{a['volume']:,.0f}"
+                })
+            st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+        
+        for asset in futures:
+            with st.container():
+                col1, col2, col3 = st.columns([1, 2, 1])
+                
+                with col1:
+                    emoji = "🚀" if asset['change_pct'] > 0 else "🩸" if asset['change_pct'] < 0 else "⚖️"
+                    st.markdown(f"## {emoji} {asset['name']}")
+                    st.markdown(f"**{asset['ticker']}** | {asset['sector']}")
+                    
+                    color = "green" if asset['change_pct'] >= 0 else "red"
+                    st.markdown(f"<span style='color:{color}; font-size:28px; font-weight:bold;'>{asset['price']:.2f}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color:{color}; font-size:20px;'>{asset['change_pct']:+.2f}%</span>", unsafe_allow_html=True)
+                    
+                    st.markdown(f"**Объем:** {asset['volume']:,.0f} контрактов")
+                
+                with col2:
+                    try:
+                        fig = generate_asset_chart(asset['df'], asset['ticker'], asset['name'])
+                        st.pyplot(fig)
+                        plt.close(fig)
+                    except Exception as e:
+                        st.error(f"Ошибка графика: {e}")
+                
+                with col3:
+                    rsi = calculate_rsi(asset['df'])
+                    atr = calculate_atr(asset['df'])
+                    
+                    if rsi < CONFIG['RSI_OVERSOLD']:
+                        st.success(f"📉 **RSI: {rsi:.1f}**\nПерепроданность")
+                    elif rsi > CONFIG['RSI_OVERBOUGHT']:
+                        st.error(f"📈 **RSI: {rsi:.1f}**\nПерекупленность")
+                    else:
+                        st.info(f"⚖️ **RSI: {rsi:.1f}**\nНорма")
+                    
+                    st.metric("ATR (волатильность)", f"{atr:.2f}")
+                    
+                    if len(asset['df']) >= 20:
+                        recent = asset['df'].tail(20)
+                        support = recent['low'].min()
+                        resistance = recent['high'].max()
+                        st.markdown(f"**Поддержка:** {support:.2f}")
+                        st.markdown(f"**Сопротивление:** {resistance:.2f}")
+                
+                st.markdown("---")
+    
+    if not assets_data:
+        st.warning("⚠️ Не удалось загрузить данные по активам. Проверьте подключение к интернету и доступность Мосбиржи.")
+
 def main():
-    st.set_page_config(page_title="Макро-Радар МОЕХ v4.0", page_icon="📊", layout="wide")
+    st.set_page_config(page_title="Макро-Радар МОЕХ v5.0", page_icon="📈", layout="wide")
     
     st.markdown("""
     <style>
@@ -756,7 +989,7 @@ def main():
         threading.Thread(target=background_monitor, daemon=True).start()
         st.session_state.monitor_running = True
     
-    st.title("📊 Макро-Радар: Торговые Рекомендации + Аналитика")
+    st.title("📈 Макро-Радар МОЕХ v5.0: Полный Трейдинг-Терминал")
     st.warning("⚠️ **Дисклеймер:** Это аналитический инструмент. Все торговые решения вы принимаете самостоятельно.")
     
     market_status = "🟢 Торги идут" if is_market_open() else "🔴 Рынок закрыт"
@@ -768,6 +1001,11 @@ def main():
         st.metric("Риск на сделку", f"{CONFIG['RISK_PER_TRADE']*100:.1f}%")
         st.metric("Мин. R:R", f"1:{CONFIG['MIN_RISK_REWARD']}")
         st.markdown("---")
+        st.markdown("### 📊 О системе")
+        st.markdown(f"Версия: **5.0**")
+        st.markdown(f"Активов: **{len(CONFIG['ASSETS'])}**")
+        st.markdown(f"Таймфрейм: **{CONFIG['INTERVAL']} мин**")
+        st.markdown("---")
         if st.button("🔄 Обновить"):
             st.rerun()
     
@@ -775,7 +1013,6 @@ def main():
     signals = load_signals(conn)
     trade_ideas = load_trade_ideas(conn, 'active')
     
-    # Подсчет статистики
     checked_signals = [s for s in signals if s['checked'] == 1]
     wins = [s for s in checked_signals if s['outcome'] == 'win']
     losses = [s for s in checked_signals if s['outcome'] == 'loss']
@@ -798,132 +1035,13 @@ def main():
     
     st.markdown("---")
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 Эффективность", "💡 Торговые идеи", "🎯 Сигналы", 
-        "🚨 Позиции", "📰 Новости", "📈 История"
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "📈 Котировки", "💡 Торговые идеи", "🎯 Сигналы",
+        "🚨 Позиции", "📊 Эффективность", "📰 Новости", "📜 История"
     ])
     
     with tab1:
-        st.subheader("📊 Анализ эффективности системы")
-        
-        if len(checked_signals) < 5:
-            st.info(f"Недостаточно данных для анализа. Проверено сигналов: {len(checked_signals)}. Нужно минимум 5.")
-            st.markdown("""
-            **Как работает авторазметка:**
-            - Система автоматически проверяет каждый сигнал через 2 часа
-            - Определяет: сработал ли стоп-лосс или достигнута цель
-            - Рассчитывает реальный P&L
-            - Сохраняет результаты для анализа
-            """)
-        else:
-            df_checked = pd.DataFrame(checked_signals)
-            
-            # Основные метрики
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                win_rate = len(wins) / len(checked_signals) * 100
-                st.metric("Win Rate", f"{win_rate:.1f}%")
-            with col2:
-                avg_win = sum(s['pnl_pct'] for s in wins) / max(len(wins), 1)
-                st.metric("Средняя прибыль", f"{avg_win:+.2f}%")
-            with col3:
-                avg_loss = sum(s['pnl_pct'] for s in losses) / max(len(losses), 1)
-                st.metric("Средний убыток", f"{avg_loss:+.2f}%")
-            with col4:
-                profit_factor = abs(sum(s['pnl_pct'] for s in wins) / min(sum(s['pnl_pct'] for s in losses), -0.01))
-                st.metric("Profit Factor", f"{profit_factor:.2f}")
-            
-            st.markdown("---")
-            
-            # Графики
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### Распределение исходов")
-                outcome_counts = df_checked['outcome'].value_counts()
-                st.bar_chart(outcome_counts)
-            
-            with col2:
-                st.markdown("#### P&L по сигналам")
-                st.histogram(df_checked['pnl_pct'], bins=20)
-            
-            st.markdown("---")
-            
-            # Анализ по тикерам
-            st.markdown("#### Эффективность по тикерам")
-            ticker_stats = df_checked.groupby('ticker').agg({
-                'outcome': lambda x: (x == 'win').sum() / len(x) * 100,
-                'pnl_pct': 'mean',
-                'id': 'count'
-            }).round(2)
-            ticker_stats.columns = ['Win Rate %', 'Средний P&L %', 'Кол-во сигналов']
-            ticker_stats = ticker_stats.sort_values('Win Rate %', ascending=False)
-            st.dataframe(ticker_stats, use_container_width=True)
-            
-            st.markdown("---")
-            
-            # Анализ по секторам
-            st.markdown("#### Эффективность по секторам")
-            sector_stats = df_checked.groupby('sector').agg({
-                'outcome': lambda x: (x == 'win').sum() / len(x) * 100,
-                'pnl_pct': 'mean',
-                'id': 'count'
-            }).round(2)
-            sector_stats.columns = ['Win Rate %', 'Средний P&L %', 'Кол-во сигналов']
-            sector_stats = sector_stats.sort_values('Win Rate %', ascending=False)
-            st.dataframe(sector_stats, use_container_width=True)
-            
-            st.markdown("---")
-            
-            # Причины выхода
-            st.markdown("#### Причины срабатывания уровней")
-            exit_reasons = df_checked['exit_reason'].value_counts()
-            col1, col2 = st.columns(2)
-            with col1:
-                st.bar_chart(exit_reasons)
-            with col2:
-                st.markdown("**Расшифровка:**")
-                st.markdown("- `target_1/2/3` — достигнута цель")
-                st.markdown("- `stop_loss` — сработал стоп")
-                st.markdown("- `in_profit/loss` — позиция в плюсе/минусе")
-                st.markdown("- `sideways` — боковик")
-            
-            st.markdown("---")
-            
-            # Лучшие и худшие сигналы
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### 🏆 Лучшие сигналы")
-                top_wins = df_checked[df_checked['outcome'] == 'win'].nlargest(5, 'pnl_pct')
-                for _, sig in top_wins.iterrows():
-                    st.markdown(f"**{sig['name']}** ({sig['ticker']}) | **{sig['pnl_pct']:+.2f}%** | {sig['exit_reason']}")
-            
-            with col2:
-                st.markdown("#### 💔 Худшие сигналы")
-                top_losses = df_checked[df_checked['outcome'] == 'loss'].nsmallest(5, 'pnl_pct')
-                for _, sig in top_losses.iterrows():
-                    st.markdown(f"**{sig['name']}** ({sig['ticker']}) | **{sig['pnl_pct']:+.2f}%** | {sig['exit_reason']}")
-            
-            # Рекомендации
-            st.markdown("---")
-            st.markdown("#### 💡 Рекомендации по оптимизации")
-            
-            if win_rate < 40:
-                st.error("⚠️ **Win Rate ниже 40%.** Рекомендуется:")
-                st.markdown("- Увеличить минимальный R:R до 1:3")
-                st.markdown("- Ужесточить фильтры входа (например, RSI < 25 для лонга)")
-                st.markdown("- Торговать только по тренду")
-            elif win_rate > 60:
-                st.success("✅ **Отличный Win Rate!** Система работает хорошо.")
-            
-            if avg_win < abs(avg_loss):
-                st.warning("⚠️ **Средняя прибыль меньше среднего убытка.** Рекомендуется:")
-                st.markdown("- Держать позиции дольше (не фиксировать рано)")
-                st.markdown("- Использовать трейлинг-стоп")
-            
-            if profit_factor < 1.5:
-                st.warning("⚠️ **Profit Factor ниже 1.5.** Система на грани безубыточности.")
+        render_quotes_tab()
     
     with tab2:
         st.subheader("Готовые торговые планы")
@@ -1048,10 +1166,67 @@ def main():
                             st.markdown(f"<span style='color:{pnl_color}; font-size:18px;'>{current_price:.2f}</span>", unsafe_allow_html=True)
                         with col3:
                             st.markdown(f"**P&L:**")
-                            st.markdown(f"<span style='color:{pnl_color}; font-size:18px;'>{pnl_pct:+.2f}%</span>", unsafe_expand_html=True)
+                            st.markdown(f"<span style='color:{pnl_color}; font-size:18px;'>{pnl_pct:+.2f}%</span>", unsafe_allow_html=True)
                         st.divider()
     
     with tab5:
+        st.subheader("📊 Анализ эффективности системы")
+        
+        if len(checked_signals) < 5:
+            st.info(f"Недостаточно данных. Проверено: {len(checked_signals)}. Нужно минимум 5.")
+            st.markdown("""
+            **Как работает авторазметка:**
+            - Система проверяет каждый сигнал через 2 часа
+            - Определяет: сработал ли стоп или достигнута цель
+            - Рассчитывает реальный P&L
+            """)
+        else:
+            df_checked = pd.DataFrame(checked_signals)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                win_rate = len(wins) / len(checked_signals) * 100
+                st.metric("Win Rate", f"{win_rate:.1f}%")
+            with col2:
+                avg_win = sum(s['pnl_pct'] for s in wins) / max(len(wins), 1)
+                st.metric("Средняя прибыль", f"{avg_win:+.2f}%")
+            with col3:
+                avg_loss = sum(s['pnl_pct'] for s in losses) / max(len(losses), 1)
+                st.metric("Средний убыток", f"{avg_loss:+.2f}%")
+            with col4:
+                total_wins = sum(s['pnl_pct'] for s in wins)
+                total_losses = sum(s['pnl_pct'] for s in losses)
+                profit_factor = abs(total_wins / min(total_losses, -0.01))
+                st.metric("Profit Factor", f"{profit_factor:.2f}")
+            
+            st.markdown("---")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("#### Распределение исходов")
+                outcome_counts = df_checked['outcome'].value_counts()
+                st.bar_chart(outcome_counts)
+            with col2:
+                st.markdown("#### P&L по сигналам")
+                st.histogram(df_checked['pnl_pct'], bins=20)
+            
+            st.markdown("---")
+            st.markdown("#### Эффективность по тикерам")
+            ticker_stats = df_checked.groupby('ticker').agg({
+                'outcome': lambda x: (x == 'win').sum() / len(x) * 100,
+                'pnl_pct': 'mean',
+                'id': 'count'
+            }).round(2)
+            ticker_stats.columns = ['Win Rate %', 'Средний P&L %', 'Кол-во']
+            ticker_stats = ticker_stats.sort_values('Win Rate %', ascending=False)
+            st.dataframe(ticker_stats, use_container_width=True)
+            
+            if win_rate < 40:
+                st.error("⚠️ Win Rate ниже 40%. Рассмотрите ужесточение фильтров.")
+            elif win_rate > 60:
+                st.success("✅ Отличный Win Rate!")
+    
+    with tab6:
         st.subheader("Новости с аналитикой")
         news = load_news_analysis(conn)
         if not news:
@@ -1063,13 +1238,12 @@ def main():
                 st.caption(f"Сентимент: {n['sentiment']:+.2f} | Тикеры: {', '.join(n['tickers']) if n['tickers'] else '—'}")
                 st.divider()
     
-    with tab6:
+    with tab7:
         st.subheader("📈 История всех сигналов")
         
         if not signals:
             st.info("История пуста")
         else:
-            # Фильтры
             col1, col2, col3 = st.columns(3)
             with col1:
                 filter_outcome = st.selectbox("Исход", ["Все", "win", "loss", "neutral", "pending"])
@@ -1112,39 +1286,13 @@ def main():
                         st.markdown(f"{sig['outcome']}")
                     
                     if sig['exit_reason']:
-                        st.caption(f"Причина: {sig['exit_reason']} | Прошло часов: {sig['hours_elapsed']:.1f}")
+                        st.caption(f"Причина: {sig['exit_reason']} | Часов: {sig['hours_elapsed']:.1f}")
                     
                     st.markdown('</div>', unsafe_allow_html=True)
                     st.divider()
     
     time.sleep(30)
     st.rerun()
-
-def generate_exit_signals(current_price: float, entry: float, stop_loss: float, tp1: float, tp2: float, tp3: float, direction: str, rsi: float) -> List[str]:
-    signals = []
-    if direction == 'long':
-        if current_price <= stop_loss:
-            signals.append("🔴 СТОП-ЛОСС: Цена достигла уровня стопа.")
-        if current_price >= tp1:
-            signals.append(f"🟡 ЦЕЛЬ 1 ДОСТИГНУТА ({tp1:.2f}): Зафиксируйте 1/3 позиции.")
-        if current_price >= tp2:
-            signals.append(f"🟢 ЦЕЛЬ 2 ДОСТИГНУТА ({tp2:.2f}): Зафиксируйте еще 1/3.")
-        if current_price >= tp3:
-            signals.append(f"🎯 ЦЕЛЬ 3 ДОСТИГНУТА ({tp3:.2f}): Полностью закрывайте позицию.")
-        if rsi > CONFIG['RSI_OVERBOUGHT'] and current_price > entry * 1.05:
-            signals.append(f"⚠️ RSI ПЕРЕКУПЛЕННОСТЬ ({rsi:.1f})")
-    elif direction == 'short':
-        if current_price >= stop_loss:
-            signals.append("🔴 СТОП-ЛОСС: Цена достигла уровня стопа.")
-        if current_price <= tp1:
-            signals.append(f"🟡 ЦЕЛЬ 1 ДОСТИГНУТА ({tp1:.2f})")
-        if current_price <= tp2:
-            signals.append(f"🟢 ЦЕЛЬ 2 ДОСТИГНУТА ({tp2:.2f})")
-        if current_price <= tp3:
-            signals.append(f"🎯 ЦЕЛЬ 3 ДОСТИГНУТА ({tp3:.2f})")
-        if rsi < CONFIG['RSI_OVERSOLD'] and current_price < entry * 0.95:
-            signals.append(f"⚠️ RSI ПЕРЕПРОДАННОСТЬ ({rsi:.1f})")
-    return signals
 
 if __name__ == "__main__":
     main()
