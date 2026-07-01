@@ -668,21 +668,26 @@ def auto_label_signals():
 # 🤖 ФОНОВЫЙ МОНИТОРИНГ
 # ==========================================
 def background_monitor():
+    """Фоновый мониторинг рынка"""
     init_db()
     alerted_candles = {}
     last_label_check = 0
     last_news_check = 0
     
-    # ИСПРАВЛЕНИЕ #1: Ждём, пока загрузятся динамические акции
+    # Ждём загрузки динамических акций (до 30 секунд)
     wait_count = 0
     while wait_count < 10 and not CONFIG.get('DYNAMIC_STOCKS'):
         time.sleep(3)
         wait_count += 1
+        logger.info(f"⏳ Ожидание загрузки акций... ({wait_count}/10)")
+    
+    logger.info(f"✅ Монитор запущен. Отслеживается активов: {len(get_all_assets())}")
     
     while True:
         try:
             current_time = time.time()
             
+            # === АВТОРАЗМЕТКА каждые 10 минут ===
             if current_time - last_label_check > 600:
                 try:
                     auto_label_signals()
@@ -690,6 +695,7 @@ def background_monitor():
                 except Exception as e:
                     logger.error(f"Ошибка авторазметки: {e}")
             
+            # === ПАРСИНГ НОВОСТЕЙ каждые 5 минут ===
             if current_time - last_news_check > 300:
                 try:
                     feed = feedparser.parse(CONFIG['NEWS_FEED_URL'], request_headers=HEADERS)
@@ -710,15 +716,18 @@ def background_monitor():
                                      ','.join(tickers), sector, ','.join(keywords)))
                                 saved_count += 1
                         last_news_check = current_time
-                        logger.info(f"📰 Новости: {saved_count}")
+                        logger.info(f"📰 Новости: сохранено {saved_count}")
                 except Exception as e:
                     logger.error(f"Ошибка новостей: {e}")
             
+            # === ТОРГОВЫЙ МОНИТОРИНГ ===
             now = datetime.now(CONFIG['MSK_TZ'])
             is_open = now.weekday() < 5 and 10 <= now.hour < 24
             
             if is_open:
-    for ticker, info in all_assets.items():
+                # 🔔 HEARTBEAT - логируем что монитор жив
+                logger.info(f"💓 Heartbeat | Активов: {len(get_all_assets())} | {now.strftime('%H:%M:%S')}")
+                
                 all_assets = get_all_assets()
                 for ticker, info in all_assets.items():
                     try:
@@ -791,16 +800,21 @@ def background_monitor():
                             
                             alerted_candles[ticker] = candle_time
                             logger.info(f"🎯 Сигнал: {ticker} {price_change_pct:+.2f}%")
+                    
                     except Exception as e:
                         logger.error(f"Ошибка мониторинга {ticker}: {e}")
                         continue
                     
-                    time.sleep(0.5)
-                time.sleep(30)
+                    time.sleep(0.2)  # Ускорено
+                
+                time.sleep(15)  # Ускорено
+            
             else:
+                # Рынок закрыт - спим
                 time.sleep(60)
+        
         except Exception as e:
-            logger.error(f"Критическая ошибка фона: {e}")
+            logger.error(f"Критическая ошибка монитора: {e}")
             time.sleep(30)
 
 # ==========================================
