@@ -21,17 +21,30 @@ logger = logging.getLogger(__name__)
 # ⚙️ КОНФИГУРАЦИЯ
 # ==========================================
 CONFIG = {
-    'ASSETS': {
-        'SBER': {'type': 'stock', 'name': 'Сбербанк', 'sector': 'bank', 'keywords': ['сбер', 'банк', 'кредит', 'ипотека', 'дивиденд'], 'volatility': 'medium'},
-        'GAZP': {'type': 'stock', 'name': 'Газпром', 'sector': 'energy', 'keywords': ['газпром', 'газ', 'экспорт', 'труба', 'дивиденд'], 'volatility': 'medium'},
-        'LKOH': {'type': 'stock', 'name': 'Лукойл', 'sector': 'energy', 'keywords': ['лукойл', 'нефть', 'добыча', 'дивиденд', 'npv'], 'volatility': 'medium'},
-        'YNDX': {'type': 'stock', 'name': 'Яндекс', 'sector': 'tech', 'keywords': ['яндекс', 'it', 'технологии', 'регулятор', 'антимонополь'], 'volatility': 'high'},
-        'ROSN': {'type': 'stock', 'name': 'Роснефть', 'sector': 'energy', 'keywords': ['роснефть', 'нефть', 'сечин', 'восток', 'дивиденд'], 'volatility': 'medium'},
-        'PLZL': {'type': 'stock', 'name': 'Полюс', 'sector': 'metals', 'keywords': ['полюс', 'золото', 'драгметалл', 'добыча'], 'volatility': 'high'},
-        'BR0':  {'type': 'futures', 'name': 'Нефть Brent', 'sector': 'commodity', 'keywords': ['нефть', 'brent', 'opec', 'саудов', 'спот'], 'volatility': 'high'},
-        'GD0':  {'type': 'futures', 'name': 'Золото', 'sector': 'commodity', 'keywords': ['золото', 'gold', 'fed', 'инфляц', 'убежищ'], 'volatility': 'medium'},
-        'Si0':  {'type': 'futures', 'name': 'Доллар/Рубль', 'sector': 'currency', 'keywords': ['доллар', 'рубль', 'цб', 'курс', 'валют', 'санкц'], 'volatility': 'low'}
+    'CORE_ASSETS': {
+        'SBER': {'type': 'stock', 'name': 'Сбербанк', 'sector': 'bank', 
+                 'keywords': ['сбер', 'банк', 'кредит', 'ипотека', 'дивиденд'], 'volatility': 'medium'},
+        'GAZP': {'type': 'stock', 'name': 'Газпром', 'sector': 'energy', 
+                 'keywords': ['газпром', 'газ', 'экспорт', 'труба', 'дивиденд'], 'volatility': 'medium'},
+        'LKOH': {'type': 'stock', 'name': 'Лукойл', 'sector': 'energy', 
+                 'keywords': ['лукойл', 'нефть', 'добыча', 'дивиденд', 'npv'], 'volatility': 'medium'},
+        'YNDX': {'type': 'stock', 'name': 'Яндекс', 'sector': 'tech', 
+                 'keywords': ['яндекс', 'it', 'технологии', 'регулятор', 'антимонополь'], 'volatility': 'high'},
+        'ROSN': {'type': 'stock', 'name': 'Роснефть', 'sector': 'energy', 
+                 'keywords': ['роснефть', 'нефть', 'сечин', 'восток', 'дивиденд'], 'volatility': 'medium'},
+        'PLZL': {'type': 'stock', 'name': 'Полюс', 'sector': 'metals', 
+                 'keywords': ['полюс', 'золото', 'драгметалл', 'добыча'], 'volatility': 'high'},
     },
+    'FUTURES': {
+        'BR0':  {'type': 'futures', 'name': 'Нефть Brent', 'sector': 'commodity', 
+                 'keywords': ['нефть', 'brent', 'opec', 'саудов', 'спот'], 'volatility': 'high'},
+        'GD0':  {'type': 'futures', 'name': 'Золото', 'sector': 'commodity', 
+                 'keywords': ['золото', 'gold', 'fed', 'инфляц', 'убежищ'], 'volatility': 'medium'},
+        'Si0':  {'type': 'futures', 'name': 'Доллар/Рубль', 'sector': 'currency', 
+                 'keywords': ['доллар', 'рубль', 'цб', 'курс', 'валют', 'санкц'], 'volatility': 'low'},
+    },
+    'DYNAMIC_STOCKS': {},
+    
     'INTERVAL': 10,
     'VOLUME_MULTIPLIER': 2.5,
     'PRICE_CHANGE_THRESHOLD': 1.2,
@@ -46,8 +59,20 @@ CONFIG = {
     'MIN_RISK_REWARD': 2.0,
     'STOP_LOSS_ATR_MULTIPLIER': 1.5,
     'TAKE_PROFIT_LEVELS': [1.0, 2.0, 3.0],
-    'AUTO_LABEL_HOURS': 2
+    'AUTO_LABEL_HOURS': 2,
+    'MAX_TRACKED_STOCKS': 30,
 }
+
+def get_all_assets():
+    """Получить все активы (core + dynamic + futures)"""
+    assets = {}
+    assets.update(CONFIG['CORE_ASSETS'])
+    assets.update(CONFIG.get('DYNAMIC_STOCKS', {}))
+    assets.update(CONFIG['FUTURES'])
+    return assets
+
+# Для обратной совместимости
+CONFIG['ASSETS'] = get_all_assets()
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
@@ -57,11 +82,9 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 DB_LOCK = threading.Lock()
 
 def get_db_connection():
-    """Создание соединения с БД"""
     return sqlite3.connect('signals.db', check_same_thread=False, timeout=10)
 
 def init_db():
-    """Инициализация базы данных"""
     with DB_LOCK:
         conn = get_db_connection()
         try:
@@ -110,7 +133,6 @@ def init_db():
             conn.close()
 
 def execute_db_query(query, params=None, fetch=False):
-    """Безопасное выполнение SQL-запросов"""
     with DB_LOCK:
         conn = get_db_connection()
         try:
@@ -132,7 +154,6 @@ def execute_db_query(query, params=None, fetch=False):
 # 📊 MOEX API
 # ==========================================
 def fetch_moex_data_raw(ticker: str, asset_type: str) -> Optional[pd.DataFrame]:
-    """Сырая функция получения данных (для фонового потока)"""
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -154,14 +175,164 @@ def fetch_moex_data_raw(ticker: str, asset_type: str) -> Optional[pd.DataFrame]:
 
 @st.cache_data(ttl=CONFIG['CACHE_TTL'])
 def get_moex_data(ticker: str, asset_type: str) -> Optional[pd.DataFrame]:
-    """Кэшированная версия для UI"""
     return fetch_moex_data_raw(ticker, asset_type)
+
+# ==========================================
+# 🇷🇺 ЗАГРУЗКА ВСЕХ АКЦИЙ МОСБИРЖИ
+# ==========================================
+def _guess_sector(ticker, name):
+    """Определение сектора по тикеру/названию"""
+    name_lower = (name or '').lower()
+    ticker_lower = (ticker or '').lower()
+    text = name_lower + ' ' + ticker_lower
+    
+    if any(w in text for w in ['банк', 'bank', 'сбер', 'втб', 'тбанк', 'альфа', 'росбанк', 'открыт']):
+        return 'bank'
+    elif any(w in text for w in ['нефть', 'газ', 'oil', 'gas', 'лукойл', 'роснефть', 'татнефть', 'сургут', 'башнефть']):
+        return 'energy'
+    elif any(w in text for w in ['золот', 'gold', 'полюс', 'полиметалл', 'селигдар']):
+        return 'gold'
+    elif any(w in text for w in ['алроса', 'алмаз']):
+        return 'diamonds'
+    elif any(w in text for w in ['сталь', 'металл', 'steel', 'металлоинвест', 'северсталь', 'ммк', 'нлмк', 'евраз', 'норникель', 'русал']):
+        return 'metals'
+    elif any(w in text for w in ['яндекс', 'ozon', 'циан', 'астрон', 'headhunter', 'софт', 'posit']):
+        return 'tech'
+    elif any(w in text for w in ['аэрофлот', 'авиа', 'совкомфлот', 'трансконтейнер']):
+        return 'transport'
+    elif any(w in text for w in ['магнит', 'x5', 'дикси', 'лента', 'м.видео', 'детск', 'черкизов']):
+        return 'retail'
+    elif any(w in text for w in ['фарм', 'pharm', 'апрель', 'протек', 'фармстандарт']):
+        return 'pharma'
+    elif any(w in text for w in ['мечел', 'уголь', 'coal', 'распадская', 'кузбасс', 'en+']):
+        return 'mining'
+    elif any(w in text for w in ['телеком', 'telecom', 'мтс', 'ростелеком', 'мегафон', 'вымпелком']):
+        return 'telecom'
+    elif any(w in text for w in ['пик', 'самолет', 'лср', 'эталон', 'девелоп', 'строй', 'галс']):
+        return 'realestate'
+    elif any(w in text for w in ['электро', 'энерг', 'сет', 'россети', 'интер рао', 'rushydro', 'огк', 'тгк']):
+        return 'utilities'
+    elif any(w in text for w in ['удобр', 'фосагро', 'акрон', 'хим', 'uralkali', 'уралкалий']):
+        return 'chemicals'
+    else:
+        return 'other'
+
+def fetch_all_moex_stocks():
+    """Загрузка полного списка акций с Мосбиржи"""
+    try:
+        url = "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json"
+        response = requests.get(url, headers=HEADERS, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        securities = data.get('securities', {})
+        sec_data = securities.get('data', [])
+        sec_columns = securities.get('columns', [])
+        
+        if not sec_data:
+            logger.error("Пустой список акций от MOEX")
+            return []
+        
+        df = pd.DataFrame(sec_data, columns=sec_columns)
+        
+        # ИСПРАВЛЕНИЕ #3: Улучшенная фильтрация - только акции
+        # Проверяем SEC_TYPE если есть
+        if 'SEC_TYPE' in df.columns:
+            # Включаем только common_share, preferred_share и пустые (старый формат)
+            valid_types = ['common_share', 'preferred_share', '']
+            stocks = df[df['SEC_TYPE'].isin(valid_types) | df['SEC_TYPE'].isna()].copy()
+        else:
+            stocks = df.copy()
+        
+        # Дополнительная фильтрация: исключаем ETF, облигации, депозитарные расписки
+        if 'SECNAME' in stocks.columns:
+            # Фильтр по названию - исключаем ETF, bonds и т.д.
+            exclude_patterns = ['etf', 'ofz', 'офз', 'флоат', 'фонд', 'облиг', 'bond', 'pkb', 'индекс']
+            for pattern in exclude_patterns:
+                stocks = stocks[~stocks['SECNAME'].str.lower().str.contains(pattern, na=False)]
+        
+        # Фильтр по ISIN - должен начинаться с RU (российские акции)
+        if 'ISIN' in stocks.columns:
+            stocks = stocks[stocks['ISIN'].str.startswith('RU', na=False)]
+        
+        # Получаем рыночные данные
+        marketdata = data.get('marketdata', {})
+        md_data = marketdata.get('data', [])
+        md_columns = marketdata.get('columns', [])
+        
+        if md_data:
+            md_df = pd.DataFrame(md_data, columns=md_columns)
+            stocks = stocks.merge(md_df, on='SECID', how='left')
+        
+        # Сортируем по объёму торгов
+        if 'VALTODAY' in stocks.columns:
+            stocks['VALTODAY'] = pd.to_numeric(stocks['VALTODAY'], errors='coerce').fillna(0)
+            stocks = stocks.sort_values('VALTODAY', ascending=False)
+        
+        result = []
+        for _, row in stocks.iterrows():
+            ticker = row.get('SECID', '')
+            if not ticker or ticker in CONFIG['CORE_ASSETS']:
+                continue
+            
+            name = row.get('SHORTNAME', row.get('SECNAME', ticker))
+            sector = _guess_sector(ticker, name)
+            volume_today = row.get('VALTODAY', 0)
+            last_price = row.get('LAST', 0)
+            
+            result.append({
+                'ticker': ticker,
+                'name': name,
+                'sector': sector,
+                'type': 'stock',
+                'volatility': 'medium',
+                'volume_today': float(volume_today) if volume_today else 0,
+                'last_price': float(last_price) if last_price else 0
+            })
+        
+        logger.info(f"✅ Загружено {len(result)} акций с Мосбиржи")
+        return result
+    
+    except Exception as e:
+        logger.error(f"Ошибка загрузки списка акций: {e}")
+        return []
+
+@st.cache_data(ttl=300)
+def get_all_stocks_catalog():
+    return fetch_all_moex_stocks()
+
+def load_dynamic_stocks(top_n=None):
+    """Загрузка топ-N акций для фонового мониторинга"""
+    top_n = top_n or CONFIG.get('MAX_TRACKED_STOCKS', 30)
+    all_stocks = get_all_stocks_catalog()
+    
+    dynamic = {}
+    for stock in all_stocks[:top_n]:
+        ticker = stock['ticker']
+        if ticker in CONFIG['CORE_ASSETS']:
+            continue
+        name_words = stock['name'].lower().split() if stock['name'] else []
+        keywords = [ticker.lower()]
+        if name_words:
+            keywords.append(name_words[0])
+        
+        dynamic[ticker] = {
+            'type': 'stock',
+            'name': stock['name'],
+            'sector': stock['sector'],
+            'keywords': keywords,
+            'volatility': stock.get('volatility', 'medium')
+        }
+    
+    CONFIG['DYNAMIC_STOCKS'] = dynamic
+    CONFIG['ASSETS'] = get_all_assets()
+    logger.info(f"✅ Загружено {len(dynamic)} динамических акций")
+    return dynamic
 
 # ==========================================
 # 📈 ТЕХНИЧЕСКИЙ АНАЛИЗ
 # ==========================================
 def calculate_atr(df: pd.DataFrame, period: int = None) -> float:
-    """Average True Range"""
     period = period or CONFIG['ATR_PERIOD']
     if df is None or len(df) < period:
         return 0.0
@@ -177,7 +348,6 @@ def calculate_atr(df: pd.DataFrame, period: int = None) -> float:
         return 0.0
 
 def find_support_resistance(df: pd.DataFrame, window: int = 20) -> Tuple[float, float]:
-    """Уровни поддержки и сопротивления"""
     if df is None or len(df) < window:
         cp = df['close'].iloc[-1] if df is not None and len(df) > 0 else 100
         return cp * 0.98, cp * 1.02
@@ -189,7 +359,6 @@ def find_support_resistance(df: pd.DataFrame, window: int = 20) -> Tuple[float, 
         return cp * 0.98, cp * 1.02
 
 def calculate_rsi(df: pd.DataFrame, period: int = None) -> float:
-    """RSI индикатор"""
     period = period or CONFIG['RSI_PERIOD']
     if df is None or len(df) < period:
         return 50.0
@@ -197,7 +366,6 @@ def calculate_rsi(df: pd.DataFrame, period: int = None) -> float:
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        # Защита от деления на ноль
         if loss.iloc[-1] == 0 or pd.isna(loss.iloc[-1]):
             return 100.0 if gain.iloc[-1] > 0 else 50.0
         rs = gain / loss
@@ -207,7 +375,6 @@ def calculate_rsi(df: pd.DataFrame, period: int = None) -> float:
         return 50.0
 
 def calculate_macd(df: pd.DataFrame) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """MACD индикатор"""
     if df is None or len(df) < 26:
         return None, None, None
     try:
@@ -223,12 +390,10 @@ def calculate_macd(df: pd.DataFrame) -> Tuple[Optional[float], Optional[float], 
         return None, None, None
 
 def calculate_trade_levels(price, direction, atr, support, resistance, volatility):
-    """Расчёт торговых уровней (с защитой от деления на ноль)"""
-    # Базовая защита
     if price <= 0:
         price = 100
     if atr <= 0:
-        atr = price * 0.01  # 1% от цены как fallback
+        atr = price * 0.01
     
     vol_mult = {'low': 0.8, 'medium': 1.0, 'high': 1.2}.get(volatility, 1.0)
     
@@ -238,7 +403,7 @@ def calculate_trade_levels(price, direction, atr, support, resistance, volatilit
             stop_loss = max(price - stop_distance, support * 0.995) if support > 0 else price - stop_distance
             risk = price - stop_loss
             if risk <= 0 or risk < price * 0.001:
-                risk = price * 0.02  # Минимум 2% риска
+                risk = price * 0.02
                 stop_loss = price - risk
             tp1 = price + risk * CONFIG['TAKE_PROFIT_LEVELS'][0]
             tp2 = price + risk * CONFIG['TAKE_PROFIT_LEVELS'][1]
@@ -269,7 +434,6 @@ def calculate_trade_levels(price, direction, atr, support, resistance, volatilit
                 'tp2': price * 1.02, 'tp3': price * 1.03, 'risk_reward': 0}
 
 def calculate_position_size(balance, risk_pct, entry, stop):
-    """Расчёт размера позиции"""
     try:
         if entry <= 0 or stop <= 0 or entry == stop:
             return 0
@@ -281,7 +445,6 @@ def calculate_position_size(balance, risk_pct, entry, stop):
         return 0
 
 def determine_trade_direction(rsi, price_change, sentiment, support, resistance, price):
-    """Определение направления сделки"""
     score = 0
     if rsi < CONFIG['RSI_OVERSOLD']:
         score += 2
@@ -318,8 +481,13 @@ NEGATIVE_WORDS = {'пад', 'снижен', 'убыт', 'потерь', 'рис'
     'задерж', 'авар', 'пожар', 'конфликт', 'войн', 'эскал', 'инфляц', 'рецесс',
     'девальв', 'обвал', 'паник', 'распродаж', 'давлен', 'сниж', 'коррекц'}
 
+# Кэш активов для анализа новостей (ИСПРАВЛЕНИЕ #6)
+@st.cache_data(ttl=60)
+def get_cached_assets_for_analysis():
+    """Кэшированный список активов для анализа"""
+    return get_all_assets()
+
 def analyze_news_sentiment(title, description=''):
-    """Анализ тональности новости"""
     try:
         text = (title + ' ' + description).lower()
         pos_count = sum(1 for w in POSITIVE_WORDS if w in text)
@@ -328,7 +496,9 @@ def analyze_news_sentiment(title, description=''):
         sentiment = (pos_count - neg_count) / max(total, 1)
         
         found_tickers, found_keywords, sector = [], [], 'general'
-        for ticker, info in CONFIG['ASSETS'].items():
+        # Используем кэшированный список для производительности
+        assets = get_cached_assets_for_analysis()
+        for ticker, info in assets.items():
             for kw in info.get('keywords', []):
                 if kw in text:
                     found_tickers.append(ticker)
@@ -343,7 +513,6 @@ def analyze_news_sentiment(title, description=''):
         return 0.0, [], 'general', []
 
 def calculate_forecast_score(signal_data, news_sentiment, historical_data):
-    """Расчёт прогнозного скора"""
     try:
         score = 50.0
         price_change = signal_data.get('change_pct', 0)
@@ -381,7 +550,6 @@ def calculate_forecast_score(signal_data, news_sentiment, historical_data):
 # 🤖 АВТОРАЗМЕТКА
 # ==========================================
 def auto_label_signals():
-    """Автоматическая проверка сигналов"""
     unchecked = execute_db_query(
         'SELECT * FROM signals WHERE checked = 0 AND trade_direction != "neutral" ORDER BY timestamp ASC LIMIT 10',
         fetch=True)
@@ -500,17 +668,21 @@ def auto_label_signals():
 # 🤖 ФОНОВЫЙ МОНИТОРИНГ
 # ==========================================
 def background_monitor():
-    """Основной фоновый процесс"""
     init_db()
     alerted_candles = {}
     last_label_check = 0
     last_news_check = 0
     
+    # ИСПРАВЛЕНИЕ #1: Ждём, пока загрузятся динамические акции
+    wait_count = 0
+    while wait_count < 10 and not CONFIG.get('DYNAMIC_STOCKS'):
+        time.sleep(3)
+        wait_count += 1
+    
     while True:
         try:
             current_time = time.time()
             
-            # Авторазметка каждые 10 минут
             if current_time - last_label_check > 600:
                 try:
                     auto_label_signals()
@@ -518,7 +690,6 @@ def background_monitor():
                 except Exception as e:
                     logger.error(f"Ошибка авторазметки: {e}")
             
-            # Парсинг новостей каждые 5 минут
             if current_time - last_news_check > 300:
                 try:
                     feed = feedparser.parse(CONFIG['NEWS_FEED_URL'], request_headers=HEADERS)
@@ -543,12 +714,12 @@ def background_monitor():
                 except Exception as e:
                     logger.error(f"Ошибка новостей: {e}")
             
-            # Торговый мониторинг
             now = datetime.now(CONFIG['MSK_TZ'])
             is_open = now.weekday() < 5 and 10 <= now.hour < 24
             
             if is_open:
-                for ticker, info in CONFIG['ASSETS'].items():
+                all_assets = get_all_assets()
+                for ticker, info in all_assets.items():
                     try:
                         df = fetch_moex_data_raw(ticker, info['type'])
                         if df is None or len(df) < 5:
@@ -623,8 +794,8 @@ def background_monitor():
                         logger.error(f"Ошибка мониторинга {ticker}: {e}")
                         continue
                     
-                    time.sleep(1)
-                time.sleep(15)
+                    time.sleep(0.5)
+                time.sleep(30)
             else:
                 time.sleep(60)
         except Exception as e:
@@ -632,10 +803,9 @@ def background_monitor():
             time.sleep(30)
 
 # ==========================================
-# 🎨 ПРОФЕССИОНАЛЬНЫЕ ГРАФИКИ
+# 🎨 ГРАФИКИ
 # ==========================================
 def generate_candlestick_chart(df, ticker, name, trade_levels=None):
-    """Профессиональный свечной график с уровнями"""
     try:
         df_plot = df.copy()
         df_plot['begin'] = pd.to_datetime(df_plot['begin'])
@@ -658,7 +828,6 @@ def generate_candlestick_chart(df, ticker, name, trade_levels=None):
             figcolor='#0e1117'
         )
         
-        # Горизонтальные линии
         hlines_config = None
         add_plots = []
         
@@ -669,7 +838,6 @@ def generate_candlestick_chart(df, ticker, name, trade_levels=None):
             tp2 = trade_levels.get('tp2', 0)
             tp3 = trade_levels.get('tp3', 0)
             
-            # Проверяем, что все уровни положительные
             if all(v > 0 for v in [entry, stop, tp1, tp2, tp3]):
                 hlines_config = {
                     'hlines': [entry, stop, tp1, tp2, tp3],
@@ -678,7 +846,6 @@ def generate_candlestick_chart(df, ticker, name, trade_levels=None):
                     'linewidths': [1.5, 1.5, 1, 1, 1]
                 }
         
-        # SMA 20
         if len(df_plot) >= 20:
             sma20 = df_plot['Close'].rolling(window=20).mean()
             add_plots.append(mpf.make_addplot(sma20, color='#ffaa00', width=1, linestyle='--'))
@@ -697,7 +864,6 @@ def generate_candlestick_chart(df, ticker, name, trade_levels=None):
         
         axes[0].set_title(f'{name} ({ticker}) - 10min', color='white', fontsize=14, pad=10)
         
-        # Легенда уровней
         if hlines_config and trade_levels:
             legend_elements = [
                 Line2D([0], [0], color='#00ffcc', linewidth=2, label=f'Entry: {trade_levels["entry"]:.2f}'),
@@ -716,7 +882,6 @@ def generate_candlestick_chart(df, ticker, name, trade_levels=None):
         return generate_simple_chart(df, ticker, name)
 
 def generate_simple_chart(df, ticker, name):
-    """Fallback простой график"""
     try:
         with plt.style.context('dark_background'):
             fig, ax = plt.subplots(figsize=(12, 5))
@@ -728,22 +893,28 @@ def generate_simple_chart(df, ticker, name):
             plt.tight_layout()
             return fig
     except Exception:
-        # Последний fallback - пустая фигура
         fig, ax = plt.subplots(figsize=(12, 5))
         ax.text(0.5, 0.5, 'Ошибка графика', ha='center', va='center')
         return fig
 
 # ==========================================
-# 🔥 HEATMAP КОРРЕЛЯЦИЙ
+# 🔥 HEATMAP КОРРЕЛЯЦИЙ (ИСПРАВЛЕНИЕ #4: +фьючерсы)
 # ==========================================
 def render_heatmap_correlation():
-    """Тепловая карта корреляций"""
     st.subheader("🔥 Корреляция доходностей активов")
-    st.caption("Как активы движутся относительно друг друга")
+    st.caption("Как активы движутся относительно друг друга (акции + сырьё + валюта)")
     
     with st.spinner("Загрузка данных..."):
         prices_data = {}
-        for ticker, info in CONFIG['ASSETS'].items():
+        # Включаем CORE_ASSETS + FUTURES + топ-10 DYNAMIC_STOCKS
+        assets_for_corr = {}
+        assets_for_corr.update(CONFIG['CORE_ASSETS'])
+        assets_for_corr.update(CONFIG['FUTURES'])
+        dynamic_items = list(CONFIG.get('DYNAMIC_STOCKS', {}).items())[:10]
+        for ticker, info in dynamic_items:
+            assets_for_corr[ticker] = info
+        
+        for ticker, info in assets_for_corr.items():
             df = fetch_moex_data_raw(ticker, info['type'])
             if df is not None and len(df) > 20:
                 try:
@@ -754,14 +925,14 @@ def render_heatmap_correlation():
                     continue
         
         if len(prices_data) < 3:
-            st.warning("⚠️ Недостаточно данных (нужно минимум 3 актива)")
+            st.warning("⚠️ Недостаточно данных")
             return
         
         returns_df = pd.DataFrame(prices_data)
         corr_matrix = returns_df.corr()
     
     with plt.style.context('dark_background'):
-        fig, ax = plt.subplots(figsize=(10, 8))
+        fig, ax = plt.subplots(figsize=(12, 10))
         fig.patch.set_facecolor('#0e1117')
         ax.set_facecolor('#0e1117')
         
@@ -769,18 +940,19 @@ def render_heatmap_correlation():
         
         ax.set_xticks(range(len(corr_matrix.columns)))
         ax.set_yticks(range(len(corr_matrix.columns)))
-        ax.set_xticklabels(corr_matrix.columns, rotation=45, ha='right', color='white')
-        ax.set_yticklabels(corr_matrix.columns, color='white')
+        ax.set_xticklabels(corr_matrix.columns, rotation=45, ha='right', color='white', fontsize=9)
+        ax.set_yticklabels(corr_matrix.columns, color='white', fontsize=9)
         
         for i in range(len(corr_matrix)):
             for j in range(len(corr_matrix)):
                 val = corr_matrix.values[i, j]
                 color = 'white' if abs(val) < 0.5 else 'black'
                 ax.text(j, i, f'{val:.2f}', ha="center", va="center",
-                       color=color, fontsize=9, fontweight='bold')
+                       color=color, fontsize=8, fontweight='bold')
         
         plt.colorbar(im, label='Корреляция', ax=ax)
-        ax.set_title('Корреляция доходностей', color='white', fontsize=14, pad=20)
+        ax.set_title('Корреляция доходностей (акции + сырьё + валюта)', 
+                    color='white', fontsize=14, pad=20)
         plt.tight_layout()
         st.pyplot(fig)
         plt.close(fig)
@@ -791,7 +963,7 @@ def render_heatmap_correlation():
     with c2: st.error("🔴 **Красный (<-0.3)**\nПротивоположно")
     with c3: st.info("⚪ **Белый (~0)**\nНет связи")
     
-    # Топ связей
+    # Топ корреляций
     pairs = []
     for i in range(len(corr_matrix)):
         for j in range(i+1, len(corr_matrix)):
@@ -801,26 +973,25 @@ def render_heatmap_correlation():
             })
     pairs.sort(key=lambda x: abs(x['correlation']), reverse=True)
     
-    st.markdown("### 🔗 Топ связи")
+    st.markdown("### 🔗 Топ связей")
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**🟢 Сильнейшая положительная:**")
-        for p in pairs[:3]:
+        for p in pairs[:5]:
             if p['correlation'] > 0:
                 st.markdown(f"- `{p['pair']}`: **{p['correlation']:+.2f}**")
     with c2:
         st.markdown("**🔴 Сильнейшая отрицательная:**")
-        for p in pairs[-3:]:
+        for p in reversed(pairs[-5:]):
             if p['correlation'] < 0:
                 st.markdown(f"- `{p['pair']}`: **{p['correlation']:+.2f}**")
     
-    st.info("💡 Для диверсификации выбирайте активы с низкой корреляцией (< 0.3)")
+    st.info("💡 **Совет:** Для диверсификации выбирайте активы с корреляцией < 0.3")
 
 # ==========================================
 # ⭐ ДАШБОРД ЛУЧШИХ ИДЕЙ
 # ==========================================
 def render_best_ideas_dashboard():
-    """Топ сигналов по разным критериям"""
     st.subheader("⭐ Лучшие торговые идеи")
     st.caption("Автоматический отбор топ-сигналов")
     
@@ -844,10 +1015,9 @@ def render_best_ideas_dashboard():
             signals.append(dict(zip(sig_cols, r)))
     
     if not signals:
-        st.info("🔍 Нет данных для отображения")
+        st.info("🔍 Нет данных")
         return
     
-    # === ТОП-3 ПО ПРОГНОЗУ ===
     st.markdown("### 🎯 Топ-3 по вероятности успеха")
     top_forecast = sorted(signals, key=lambda x: x.get('forecast_score', 0) or 0, reverse=True)[:3]
     cols = st.columns(3)
@@ -870,7 +1040,6 @@ def render_best_ideas_dashboard():
     
     st.markdown("---")
     
-    # === ТОП-3 ПО RISK/REWARD ===
     st.markdown("### 💰 Топ-3 по Risk/Reward")
     valid_rr = [s for s in signals if (s.get('risk_reward', 0) or 0) > 0]
     top_rr = sorted(valid_rr, key=lambda x: x.get('risk_reward', 0), reverse=True)[:3]
@@ -888,99 +1057,29 @@ def render_best_ideas_dashboard():
                 stop = sig.get('stop_loss', 0) or 0
                 with c1: st.markdown(f"**Вход:** {entry:.2f}")
                 with c2: st.markdown(f"**Стоп:** <span style='color:#ff4444;'>{stop:.2f}</span>", unsafe_allow_html=True)
-                tp1 = sig.get('take_profit_1', 0) or 0
-                tp2 = sig.get('take_profit_2', 0) or 0
-                tp3 = sig.get('take_profit_3', 0) or 0
-                st.caption(f"Цели: {tp1:.2f} → {tp2:.2f} → {tp3:.2f}")
-    else:
-        st.info("Пока нет сигналов с хорошим R:R")
-    
-    st.markdown("---")
-    
-    # === ТОП-3 ПО СИЛЕ СИГНАЛА ===
-    st.markdown("### 💪 Топ-3 по силе импульса")
-    
-    def sort_key_strength(s):
-        strength_score = 1 if s.get('strength') == 'strong' else 0
-        change = abs(s.get('change_pct', 0) or 0)
-        avg_vol = s.get('avg_volume', 1) or 1
-        vol_ratio = (s.get('volume', 0) or 0) / avg_vol
-        return (strength_score, change, vol_ratio)
-    
-    top_strength = sorted(signals, key=sort_key_strength, reverse=True)[:3]
-    
-    cols = st.columns(3)
-    for i, sig in enumerate(top_strength):
-        with cols[i]:
-            emoji = "📈" if sig.get('trade_direction') == 'long' else "📉"
-            st.markdown(f"#### {emoji} {sig.get('name', '')}")
-            change = sig.get('change_pct', 0) or 0
-            st.metric("⚡ Импульс", f"{change:+.2f}%")
-            avg_vol = sig.get('avg_volume', 1) or 1
-            vol = sig.get('volume', 0) or 0
-            vol_ratio = vol / avg_vol if avg_vol > 0 else 0
-            st.metric("📊 Объём", f"x{vol_ratio:.1f}")
-            strength = sig.get('strength', 'medium')
-            strength_label = "💥 СИЛЬНЫЙ" if strength == 'strong' else "⚖️ Средний"
-            sent = sig.get('news_sentiment', 0) or 0
-            st.caption(f"{strength_label} | Сентимент: {sent:+.2f}")
-    
-    st.markdown("---")
-    
-    # === СВОДНАЯ ТАБЛИЦА ===
-    st.markdown("### 📋 Все активные идеи")
-    table_data = []
-    for sig in signals[:20]:
-        emoji = "📈" if sig.get('trade_direction') == 'long' else "📉"
-        timestamp = sig.get('timestamp', '')
-        time_str = timestamp[11:16] if len(timestamp) > 16 else ''
-        forecast = sig.get('forecast_score', 0) or 0
-        rr = sig.get('risk_reward', 0) or 0
-        entry = sig.get('entry_price', 0) or 0
-        stop = sig.get('stop_loss', 0) or 0
-        rsi = sig.get('rsi', 50) or 50
-        strength = '💥' if sig.get('strength') == 'strong' else '⚖️'
-        
-        table_data.append({
-            '': emoji,
-            'Актив': f"{sig.get('name', '')} ({sig.get('ticker', '')})",
-            'Напр.': sig.get('trade_direction', '').upper(),
-            'Прогноз': f"{forecast:.0f}%",
-            'R:R': f"1:{rr:.1f}" if rr > 0 else "-",
-            'Вход': f"{entry:.2f}",
-            'Стоп': f"{stop:.2f}",
-            'RSI': f"{rsi:.0f}",
-            'Сила': strength,
-            'Время': time_str
-        })
-    
-    if table_data:
-        st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
 
 # ==========================================
 # 📊 СРАВНЕНИЕ СЕКТОРОВ
 # ==========================================
 def render_sector_comparison():
-    """Сравнительный график секторов"""
     st.subheader("📊 Сравнение секторов рынка")
     st.caption("Относительная сила секторов за последние 100 минут")
     
-    with st.spinner("Загрузка данных..."):
+    with st.spinner("Загрузка..."):
         sectors = {}
-        for ticker, info in CONFIG['ASSETS'].items():
-            sector = info.get('sector', 'unknown')
+        for ticker, info in get_all_assets().items():
+            if info['type'] != 'stock':
+                continue
+            sector = info.get('sector', 'other')
             if sector not in sectors:
                 sectors[sector] = []
             sectors[sector].append(ticker)
         
         sector_performance = {}
-        sector_details = {}
-        
         for sector, tickers in sectors.items():
             performances = []
-            details = []
-            for ticker in tickers:
-                df = fetch_moex_data_raw(ticker, CONFIG['ASSETS'][ticker]['type'])
+            for ticker in tickers[:5]:
+                df = fetch_moex_data_raw(ticker, 'stock')
                 if df is not None and len(df) > 10:
                     try:
                         prev_price = df['close'].iloc[-10]
@@ -988,12 +1087,10 @@ def render_sector_comparison():
                         if prev_price > 0:
                             price_change = (curr_price - prev_price) / prev_price * 100
                             performances.append(price_change)
-                            details.append({'ticker': ticker, 'change': price_change})
                     except Exception:
                         continue
             if performances:
                 sector_performance[sector] = sum(performances) / len(performances)
-                sector_details[sector] = details
     
     if not sector_performance:
         st.warning("⚠️ Недостаточно данных")
@@ -1008,11 +1105,10 @@ def render_sector_comparison():
         performance_list = list(sector_performance.values())
         colors = ['#26a69a' if p >= 0 else '#ef5350' for p in performance_list]
         
-        bars = ax.barh(sectors_list, performance_list, color=colors, alpha=0.8, edgecolor='none')
+        bars = ax.barh(sectors_list, performance_list, color=colors, alpha=0.8)
         
-        # Безопасные границы
         max_abs = max(abs(p) for p in performance_list) if performance_list else 1
-        max_abs = max(max_abs, 0.1)  # Минимум 0.1 для избежания нулевых границ
+        max_abs = max(max_abs, 0.1)
         text_offset = max_abs * 0.15
         ax.set_xlim(-max_abs - text_offset * 2, max_abs + text_offset * 2)
         
@@ -1022,15 +1118,12 @@ def render_sector_comparison():
             ax.text(x_pos, bar.get_y() + bar.get_height()/2,
                    f'{perf:+.2f}%',
                    ha='left' if width >= 0 else 'right',
-                   va='center', color='white', fontweight='bold', fontsize=11)
+                   va='center', color='white', fontweight='bold')
         
         ax.axvline(x=0, color='white', linestyle='-', linewidth=1, alpha=0.5)
-        ax.set_xlabel('Доходность (%)', color='white', fontsize=11)
-        ax.set_title('Сила секторов (последние 100 минут)',
-                    color='white', fontsize=14, pad=20)
-        ax.tick_params(colors='white', labelsize=11)
-        for spine in ['bottom', 'left']:
-            ax.spines[spine].set_color('white')
+        ax.set_xlabel('Доходность (%)', color='white')
+        ax.set_title('Сила секторов', color='white', fontsize=14, pad=20)
+        ax.tick_params(colors='white')
         for spine in ['top', 'right']:
             ax.spines[spine].set_visible(False)
         ax.grid(True, axis='x', alpha=0.2, color='white')
@@ -1046,50 +1139,19 @@ def render_sector_comparison():
     c1, c2 = st.columns(2)
     with c1:
         st.success(f"🏆 **Сильнейший:** {best_sector[0]}\n\n{best_sector[1]:+.2f}%")
-        if best_sector[0] in sector_details:
-            for d in sector_details[best_sector[0]]:
-                emoji = "🚀" if d['change'] > 0 else "🩸"
-                st.caption(f"{emoji} `{d['ticker']}`: {d['change']:+.2f}%")
     with c2:
         st.error(f"📉 **Слабейший:** {worst_sector[0]}\n\n{worst_sector[1]:+.2f}%")
-        if worst_sector[0] in sector_details:
-            for d in sector_details[worst_sector[0]]:
-                emoji = "🚀" if d['change'] > 0 else "🩸"
-                st.caption(f"{emoji} `{d['ticker']}`: {d['change']:+.2f}%")
-    
-    st.markdown("### 🎯 Рекомендации")
-    if best_sector[1] > 1.0:
-        st.success(f"✅ Сектор **{best_sector[0]}** показывает силу — рассмотрите лонг")
-    if worst_sector[1] < -1.0:
-        st.warning(f"⚠️ Сектор **{worst_sector[0]}** под давлением — осторожнее с лонгами")
-    
-    with st.expander("📋 Детальная статистика"):
-        all_data = []
-        for sector, details in sector_details.items():
-            for d in details:
-                all_data.append({
-                    'Сектор': sector,
-                    'Тикер': d['ticker'],
-                    'Изм. %': f"{d['change']:+.2f}%"
-                })
-        if all_data:
-            df_table = pd.DataFrame(all_data)
-            try:
-                df_table['sort_key'] = df_table['Изм. %'].str.replace('%', '').str.replace('+', '').astype(float)
-                df_table = df_table.sort_values('sort_key', ascending=False).drop('sort_key', axis=1)
-            except Exception:
-                pass
-            st.dataframe(df_table, use_container_width=True, hide_index=True)
 
 # ==========================================
-# 📈 ВКЛАДКА КОТИРОВОК
+# 📈 ВКЛАДКА КОТИРОВОК (ИСПРАВЛЕНИЕ #2 и #5)
 # ==========================================
 @st.cache_data(ttl=60)
-def get_all_assets_data():
-    """Получение данных по всем активам с кэшированием"""
+def get_all_assets_data(assets_count):
+    """Получение данных по всем активам с кэшированием, зависящим от количества"""
+    # assets_count используется как ключ кэша - при изменении числа активов кэш инвалидируется
     assets = []
-    for ticker, info in CONFIG['ASSETS'].items():
-        df = get_moex_data(ticker, info['type'])  # Используем кэшированную версию
+    for ticker, info in get_all_assets().items():
+        df = get_moex_data(ticker, info['type'])
         if df is not None and len(df) > 0:
             try:
                 current = df['close'].iloc[-1]
@@ -1100,13 +1162,11 @@ def get_all_assets_data():
                     'sector': info.get('sector', 'unknown'), 'price': current,
                     'change_pct': change, 'volume': df['volume'].iloc[-1], 'df': df
                 })
-            except Exception as e:
-                logger.error(f"Ошибка обработки {ticker}: {e}")
+            except Exception:
                 continue
     return assets
 
 def get_latest_trade_levels(ticker):
-    """Получить последние торговые уровни (безопасная версия)"""
     try:
         row = execute_db_query(
             'SELECT entry_price, stop_loss, take_profit_1, take_profit_2, take_profit_3, risk_reward FROM signals WHERE ticker=? ORDER BY timestamp DESC LIMIT 1',
@@ -1115,19 +1175,15 @@ def get_latest_trade_levels(ticker):
         )
         if row and row[0] and row[0][0] is not None:
             return {
-                'entry': row[0][0] or 0,
-                'stop_loss': row[0][1] or 0,
-                'tp1': row[0][2] or 0,
-                'tp2': row[0][3] or 0,
-                'tp3': row[0][4] or 0,
-                'risk_reward': row[0][5] or 0
+                'entry': row[0][0] or 0, 'stop_loss': row[0][1] or 0,
+                'tp1': row[0][2] or 0, 'tp2': row[0][3] or 0,
+                'tp3': row[0][4] or 0, 'risk_reward': row[0][5] or 0
             }
-    except Exception as e:
-        logger.error(f"Ошибка получения уровней {ticker}: {e}")
+    except Exception:
+        pass
     return None
 
 def render_quotes_tab():
-    """Вкладка с котировками и графиками"""
     st.subheader("📈 Котировки и графики")
     
     c1, c2, c3 = st.columns([2, 1, 1])
@@ -1142,8 +1198,10 @@ def render_quotes_tab():
     
     st.markdown("---")
     
+    # ИСПРАВЛЕНИЕ #2: Передаём количество активов как ключ кэша
+    assets_count = len(get_all_assets())
     with st.spinner("Загрузка..."):
-        assets = get_all_assets_data()
+        assets = get_all_assets_data(assets_count)
     
     if show_type == "Только акции":
         assets = [a for a in assets if a['type'] == 'stock']
@@ -1167,6 +1225,7 @@ def render_quotes_tab():
         st.markdown(f"**Среднее:** <span style='color:{color}; font-size:20px;'>{avg:+.2f}%</span>", unsafe_allow_html=True)
     
     st.markdown("---")
+    st.caption("💡 Показаны только отслеживаемые активы. Полный каталог — во вкладке **🇷🇺 Каталог**")
     
     stocks = [a for a in assets if a['type'] == 'stock']
     futures = [a for a in assets if a['type'] == 'futures']
@@ -1195,38 +1254,18 @@ def render_quotes_tab():
                         st.pyplot(fig)
                         plt.close(fig)
                     except Exception as e:
-                        st.error(f"Ошибка графика: {e}")
+                        st.error(f"Ошибка: {e}")
                 
                 with c3:
                     df = asset.get('df')
                     if df is not None:
                         rsi = calculate_rsi(df)
-                        atr = calculate_atr(df)
-                        macd_line, signal_line, hist = calculate_macd(df)
-                        
                         if rsi < CONFIG['RSI_OVERSOLD']:
                             st.success(f"📉 **RSI: {rsi:.1f}**\nПерепроданность")
                         elif rsi > CONFIG['RSI_OVERBOUGHT']:
                             st.error(f"📈 **RSI: {rsi:.1f}**\nПерекупленность")
                         else:
                             st.info(f"⚖️ **RSI: {rsi:.1f}**")
-                        
-                        st.metric("ATR", f"{atr:.2f}")
-                        
-                        if macd_line is not None and signal_line is not None:
-                            macd_signal = "🟢 Бычий" if macd_line > signal_line else "🔴 Медвежий"
-                            st.markdown(f"**MACD:** {macd_signal}")
-                            st.caption(f"Line: {macd_line:.2f}\nSignal: {signal_line:.2f}")
-                        
-                        if len(df) >= 20:
-                            r = df.tail(20)
-                            st.markdown(f"**S:** {r['low'].min():.2f}")
-                            st.markdown(f"**R:** {r['high'].max():.2f}")
-                        
-                        if trade_levels and trade_levels.get('risk_reward', 0) > 0:
-                            st.markdown("---")
-                            st.markdown("**🎯 Торговые уровни:**")
-                            st.caption(f"Entry: {trade_levels['entry']:.2f}\nStop: {trade_levels['stop_loss']:.2f}\nTP1/2/3: {trade_levels['tp1']:.2f}/{trade_levels['tp2']:.2f}/{trade_levels['tp3']:.2f}")
                 
                 st.markdown("---")
     
@@ -1236,100 +1275,153 @@ def render_quotes_tab():
         render_asset_block(futures, "🌍 Сырье и Валюта")
     
     if not assets:
-        st.warning("⚠️ Нет данных. Проверьте подключение.")
+        st.warning("⚠️ Нет данных.")
+
+# ==========================================
+# 🇷🇺 ВКЛАДКА КАТАЛОГА ВСЕХ АКЦИЙ
+# ==========================================
+def render_stock_catalog_tab():
+    st.subheader("🇷🇺 Каталог всех акций Мосбиржи")
+    st.caption("Все акции, доступные для покупки на Московской Бирже (секция TQBR)")
+    
+    with st.spinner("Загрузка полного списка акций..."):
+        all_stocks = get_all_stocks_catalog()
+    
+    if not all_stocks:
+        st.error("❌ Не удалось загрузить список акций.")
+        return
+    
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    
+    with col1:
+        search_query = st.text_input("🔍 Поиск", placeholder="Сбер, LKOH, Магнит...", key="stock_search")
+    with col2:
+        sectors = sorted(list(set(s['sector'] for s in all_stocks)))
+        selected_sector = st.selectbox("Сектор", ["Все"] + sectors, key="cat_sector")
+    with col3:
+        sort_option = st.selectbox("Сортировка", 
+                                   ["По объёму торгов", "По названию", "По тикеру"], 
+                                   key="cat_sort")
+    with col4:
+        show_count = st.selectbox("Показать", [50, 100, 200, "Все"], key="cat_count")
+    
+    total_stocks = len(all_stocks)
+    core_count = len(CONFIG['CORE_ASSETS'])
+    dynamic_count = len(CONFIG.get('DYNAMIC_STOCKS', {}))
+    futures_count = len(CONFIG['FUTURES'])
+    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.metric("📊 Всего акций", total_stocks)
+    with c2: st.metric("⭐ Core", core_count)
+    with c3: st.metric("🔄 Отслеживается", dynamic_count)
+    with c4: st.metric("🌍 Фьючерсы", futures_count)
+    
+    st.markdown("---")
+    
+    filtered = all_stocks
+    if search_query:
+        query = search_query.lower()
+        filtered = [s for s in filtered if query in s['ticker'].lower() or query in s['name'].lower()]
+    if selected_sector != "Все":
+        filtered = [s for s in filtered if s['sector'] == selected_sector]
+    
+    if sort_option == "По названию":
+        filtered.sort(key=lambda x: x['name'])
+    elif sort_option == "По тикеру":
+        filtered.sort(key=lambda x: x['ticker'])
+    else:
+        filtered.sort(key=lambda x: x.get('volume_today', 0), reverse=True)
+    
+    if show_count != "Все":
+        filtered = filtered[:show_count]
+    
+    st.markdown(f"**Найдено:** {len(filtered)} акций")
+    
+    sector_counts = {}
+    for s in all_stocks:
+        sec = s['sector']
+        sector_counts[sec] = sector_counts.get(sec, 0) + 1
+    
+    with st.expander("📊 Распределение по секторам", expanded=False):
+        cols = st.columns(4)
+        for i, (sector, count) in enumerate(sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)):
+            with cols[i % 4]:
+                st.markdown(f"**{sector}:** {count}")
+    
+    st.markdown("---")
+    
+    table_data = []
+    for stock in filtered:
+        ticker = stock['ticker']
+        is_core = ticker in CONFIG['CORE_ASSETS']
+        is_dynamic = ticker in CONFIG.get('DYNAMIC_STOCKS', {})
+        
+        if is_core:
+            status = "⭐ Core"
+        elif is_dynamic:
+            status = "🔄 Отслеживается"
+        else:
+            status = "⏸ Не отслеживается"
+        
+        vol_today = stock.get('volume_today', 0)
+        vol_str = f"{vol_today:,.0f} ₽" if vol_today > 0 else "-"
+        
+        price = stock.get('last_price', 0)
+        price_str = f"{price:.2f}" if price > 0 else "-"
+        
+        table_data.append({
+            'Статус': status,
+            'Тикер': ticker,
+            'Название': stock['name'],
+            'Сектор': stock['sector'],
+            'Цена': price_str,
+            'Объём сегодня': vol_str,
+        })
+    
+    if table_data:
+        st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True, height=600)
+    else:
+        st.info("📭 Нет акций по фильтрам")
+    
+    st.markdown("---")
+    st.markdown("### ⚙️ Управление отслеживанием")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Текущее количество:** {core_count + dynamic_count} акций")
+        new_max = st.slider("Максимум динамических акций", 
+                           min_value=10, max_value=50, 
+                           value=CONFIG.get('MAX_TRACKED_STOCKS', 30),
+                           key="max_stocks_slider")
+        
+        if new_max != CONFIG.get('MAX_TRACKED_STOCKS', 30):
+            CONFIG['MAX_TRACKED_STOCKS'] = new_max
+            if st.button("🔄 Применить", key="apply_max"):
+                st.cache_data.clear()
+                load_dynamic_stocks(new_max)
+                st.rerun()
+    
+    with c2:
+        st.markdown("**⚠️ Рекомендации:**")
+        st.markdown("- **10-20**: Быстро, минимум запросов")
+        st.markdown("- **30**: Оптимально (по умолчанию)")
+        st.markdown("- **50**: Полный охват, медленнее")
+    
+    if table_data:
+        csv_data = pd.DataFrame(table_data).to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Скачать каталог (CSV)",
+            data=csv_data,
+            file_name=f"moex_stocks_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
 
 # ==========================================
 # 📰 ВКЛАДКА НОВОСТЕЙ
 # ==========================================
 def render_news_tab():
-    """Вкладка новостей с аналитикой"""
-    st.subheader("📰 Новости с аналитикой")
-    c1, c2, c3 = st.columns([2, 1, 1])
-    with c1:
-        news_filter = st.selectbox("Фильтр",
-            ["Все новости", "Только с тикерами", "Только позитивные", "Только негативные"], key="news_filter")
-    with c2:
-        news_source = st.selectbox("Источник", ["РБК (свежие)", "Из базы (история)"], key="news_source")
-    with c3:
-        if st.button("🔄 Обновить", key="refresh_news"):
-            st.cache_data.clear()
-            st.rerun()
-    st.markdown("---")
-    news_list = []
-    
-    if news_source == "РБК (свежие)":
-        with st.spinner("Загрузка..."):
-            try:
-                feed = feedparser.parse(CONFIG['NEWS_FEED_URL'], request_headers=HEADERS)
-                if hasattr(feed, 'entries') and feed.entries:
-                    for entry in feed.entries[:30]:
-                        title = entry.get('title', '')
-                        desc = entry.get('summary', entry.get('description', ''))
-                        url = entry.get('link', '#')
-                        published = entry.get('published', '')
-                        sentiment, tickers, sector, keywords = analyze_news_sentiment(title, desc)
-                        macro_keywords = ['цб', 'ставк', 'нефть', 'brent', 'золото', 'gold',
-                                        'доллар', 'рубль', 'санкц', 'инфляц', 'ввп', 'бирж',
-                                        'moex', 'мосбир', 'газпром', 'лукойл', 'сбер', 'яндекс',
-                                        'роснефть', 'полюс', 'opec', 'фрс', 'fed']
-                        is_macro = any(kw in (title + ' ' + desc).lower() for kw in macro_keywords)
-                        if is_macro or tickers or abs(sentiment) > 0.2:
-                            news_list.append({
-                                'title': title, 'url': url, 'published': published,
-                                'sentiment': sentiment, 'tickers': tickers,
-                                'sector': sector, 'keywords': keywords, 'source': 'live'
-                            })
-                    st.success(f"✅ Загружено: {len(news_list)}")
-                    st.caption(f"🕒 {datetime.now().strftime('%H:%M:%S')}")
-                else:
-                    st.warning("⚠️ RSS недоступен")
-            except Exception as e:
-                st.error(f"❌ Ошибка: {e}")
-    else:
-        news_rows = execute_db_query('SELECT * FROM news_analysis ORDER BY timestamp DESC LIMIT 50', fetch=True) or []
-        news_cols = ['id', 'timestamp', 'title', 'url', 'sentiment', 'tickers', 'sector', 'keywords']
-        for row in news_rows:
-            if len(row) < len(news_cols):
-                continue
-            n = dict(zip(news_cols, row))
-            tickers_str = n.get('tickers', '') if isinstance(n.get('tickers'), str) else ''
-            keywords_str = n.get('keywords', '') if isinstance(n.get('keywords'), str) else ''
-            news_list.append({
-                'title': n.get('title', ''),
-                'url': n.get('url', ''),
-                'published': n.get('timestamp', ''),
-                'sentiment': n.get('sentiment', 0) or 0,
-                'tickers': tickers_str.split(',') if tickers_str else [],
-                'sector': n.get('sector', 'general'),
-                'keywords': keywords_str.split(',') if keywords_str else [],
-                'source': 'db'
-            })
-        if news_list:
-            st.info(f"📊 {len(news_list)} из базы")
-        else:
-            st.warning("⚠️ База пуста")
-    
-    if news_filter == "Только с тикерами":
-        news_list = [n for n in news_list if n.get('tickers')]
-    elif news_filter == "Только позитивные":
-        news_list = [n for n in news_list if (n.get('sentiment', 0) or 0) > 0.2]
-    elif news_filter == "Только негативные":
-        news_list = [n for n in news_list if (n.get('sentiment', 0) or 0) < -0.2]
-    
-    st.markdown("---")
-    if not news_list:
-        st.info("📭 Нет новостей")
-    else:
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("Всего", len(news_list))
-        with c2: st.metric("🟢 Позитив", len([n for n in news_list if (n.get('sentiment', 0) or 0) > 0.2]))
-        with c3: st.metric("🔴 Негатив", len([n for n in news_list if (n.get('sentiment', 0) or 0) < -0.2]))
-        with c4: st.metric("🟡 Нейтрал", len(news_list) - len([n for n in news_list if abs(n.get('sentiment', 0) or 0) > 0.2]))
-def render_news_tab():
-    """Вкладка новостей с несколькими источниками и fallback"""
     st.subheader("📰 Новости с аналитикой")
     
-    # Список источников
     NEWS_SOURCES = [
         {'name': 'Прайм', 'url': 'https://1prime.ru/export/rss2/'},
         {'name': 'Финанз.ру', 'url': 'https://www.finanz.ru/rss'},
@@ -1338,14 +1430,12 @@ def render_news_tab():
         {'name': 'Ведомости', 'url': 'https://www.vedomosti.ru/rss/rubric/finance'},
     ]
     
-    # Фильтры
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
         news_filter = st.selectbox("Фильтр",
             ["Все новости", "Только с тикерами", "Только позитивные", "Только негативные"], 
             key="news_filter")
     with c2:
-        # Выбор конкретного источника или "Авто"
         source_names = ["🤖 Авто (все источники)"] + [s['name'] for s in NEWS_SOURCES]
         selected_source = st.selectbox("Источник", source_names, key="news_source")
     with c3:
@@ -1355,27 +1445,19 @@ def render_news_tab():
     
     st.markdown("---")
     news_list = []
-    source_status = {}  # Статус каждого источника
     
-    # Функция загрузки одного источника
     def load_from_source(source):
-        """Загрузка новостей из одного источника"""
         try:
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-                'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8'
+                'Accept-Language': 'ru-RU,ru;q=0.9'
             }
-            
-            # feedparser с таймаутом через requests
-            import requests
             response = requests.get(source['url'], headers=headers, timeout=10)
-            
             if response.status_code != 200:
                 return [], f"❌ HTTP {response.status_code}"
             
             feed = feedparser.parse(response.content)
-            
             if not hasattr(feed, 'entries') or not feed.entries:
                 return [], "❌ Пустой фид"
             
@@ -1390,59 +1472,30 @@ def render_news_tab():
                 desc = entry.get('summary', entry.get('description', ''))
                 url = entry.get('link', '#')
                 published = entry.get('published', '')
-                
                 sentiment, tickers, sector, keywords = analyze_news_sentiment(title, desc)
                 is_macro = any(kw in (title + ' ' + desc).lower() for kw in macro_keywords)
                 
                 if is_macro or tickers or abs(sentiment) > 0.2:
                     results.append({
-                        'title': title,
-                        'url': url,
-                        'published': published,
-                        'sentiment': sentiment,
-                        'tickers': tickers,
-                        'sector': sector,
-                        'keywords': keywords,
-                        'source': source['name']
+                        'title': title, 'url': url, 'published': published,
+                        'sentiment': sentiment, 'tickers': tickers,
+                        'sector': sector, 'keywords': keywords, 'source': source['name']
                     })
-            
-            return results, f"✅ {len(results)} новостей"
-        except requests.exceptions.Timeout:
-            return [], "⏱ Таймаут"
-        except requests.exceptions.ConnectionError:
-            return [], "🔌 Нет соединения"
+            return results, f"✅ {len(results)}"
         except Exception as e:
-            return [], f"❌ {str(e)[:50]}"
+            return [], f"❌ {str(e)[:30]}"
     
-    # Загрузка новостей
-    with st.spinner("Загрузка новостей..."):
+    with st.spinner("Загрузка..."):
         if selected_source == "🤖 Авто (все источники)":
-            # Пробуем все источники
             for source in NEWS_SOURCES:
-                results, status = load_from_source(source)
-                source_status[source['name']] = status
+                results, _ = load_from_source(source)
                 news_list.extend(results)
         else:
-            # Конкретный источник
             source = next((s for s in NEWS_SOURCES if s['name'] == selected_source), None)
             if source:
-                results, status = load_from_source(source)
-                source_status[source['name']] = status
+                results, _ = load_from_source(source)
                 news_list.extend(results)
     
-    # Статус источников
-    with st.expander("📡 Статус источников", expanded=False):
-        for name, status in source_status.items():
-            st.markdown(f"**{name}:** {status}")
-        
-        st.info("""
-        💡 **Если все источники недоступны:**
-        - Streamlit Cloud сервер может быть заблокирован
-        - Попробуйте переключиться на "Из базы (история)" 
-        - Или запустите приложение локально
-        """)
-    
-    # Удаляем дубликаты по заголовку
     seen_titles = set()
     unique_news = []
     for n in news_list:
@@ -1451,7 +1504,6 @@ def render_news_tab():
             unique_news.append(n)
     news_list = unique_news
     
-    # Фильтры
     if news_filter == "Только с тикерами":
         news_list = [n for n in news_list if n.get('tickers')]
     elif news_filter == "Только позитивные":
@@ -1460,31 +1512,14 @@ def render_news_tab():
         news_list = [n for n in news_list if (n.get('sentiment', 0) or 0) < -0.2]
     
     st.markdown("---")
-    
-    # Отображение
     if not news_list:
-        st.warning("📭 **Новости не удалось загрузить ни из одного источника**")
-        st.markdown("""
-        ### 🔧 Что можно сделать:
-        
-        1. **Проверьте статус источников** (развёрнутый блок выше)
-        2. **Переключитесь на конкретный источник** — возможно, один из них работает
-        3. **Запустите локально** — если проблема в блокировке иностранных IP
-        4. **Используйте NewsAPI** — я могу добавить интеграцию с бесплатным API новостей
-        
-        ### 🚀 Хотите NewsAPI?
-        Зарегистрируйтесь на [newsapi.org](https://newsapi.org) (бесплатно, 100 запросов/день) 
-        и получите ключ. Я добавлю интеграцию за 5 минут.
-        """)
+        st.warning("📭 Новости не удалось загрузить")
     else:
-        # Метрики
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.metric("Всего", len(news_list))
         with c2: st.metric("🟢 Позитив", len([n for n in news_list if (n.get('sentiment', 0) or 0) > 0.2]))
         with c3: st.metric("🔴 Негатив", len([n for n in news_list if (n.get('sentiment', 0) or 0) < -0.2]))
-        with c4: 
-            sources_used = len(set(n.get('source', '') for n in news_list))
-            st.metric("Источников", sources_used)
+        with c4: st.metric("Источников", len(set(n.get('source', '') for n in news_list)))
         
         avg_sent = sum(n.get('sentiment', 0) or 0 for n in news_list) / max(len(news_list), 1)
         mood = "🟢 ПОЗИТИВНО" if avg_sent > 0.2 else "🔴 НЕГАТИВНО" if avg_sent < -0.2 else "🟡 НЕЙТРАЛЬНО"
@@ -1492,7 +1527,6 @@ def render_news_tab():
         st.markdown(f"**Настроение:** <span style='color:{mood_color}; font-size:18px;'>{mood} ({avg_sent:+.2f})</span>", unsafe_allow_html=True)
         st.markdown("---")
         
-        # Список новостей
         for n in news_list:
             sent = n.get('sentiment', 0) or 0
             if sent > 0.2:
@@ -1505,14 +1539,10 @@ def render_news_tab():
             with st.container():
                 source_badge = f"`{n.get('source', '')}`" if n.get('source') else ""
                 st.markdown(f"### {sent_emoji} [{n.get('title', '')}]({n.get('url', '#')}) {source_badge}")
-                
                 meta = [f"**Сентимент:** {sent_text}"]
                 tickers = n.get('tickers', [])
                 if tickers:
                     meta.append(f"**Тикеры:** {' '.join(['`'+t+'`' for t in tickers])}")
-                sector = n.get('sector', 'general')
-                if sector != 'general':
-                    meta.append(f"**Сектор:** {sector}")
                 st.caption(" • ".join(meta))
                 st.divider()
 
@@ -1520,7 +1550,6 @@ def render_news_tab():
 # 💡 СИГНАЛЫ НА ВЫХОД
 # ==========================================
 def generate_exit_signals(price, entry, stop, tp1, tp2, tp3, direction, rsi):
-    """Генерация сигналов на выход"""
     signals = []
     try:
         if direction == 'long':
@@ -1550,10 +1579,10 @@ def generate_exit_signals(price, entry, stop, tp1, tp2, tp3, direction, rsi):
     return signals
 
 # ==========================================
-# 🎨 ГЛАВНЫЙ ИНТЕРФЕЙС
+# 🎨 ГЛАВНЫЙ ИНТЕРФЕЙС (ИСПРАВЛЕНИЕ #1: порядок)
 # ==========================================
 def main():
-    st.set_page_config(page_title="Макро-Радар МОЕХ v6.1", page_icon="📈", layout="wide")
+    st.set_page_config(page_title="Макро-Радар МОЕХ v7.1", page_icon="📈", layout="wide")
     st.markdown("""
     <style>
         .main { background-color: #0e1117; }
@@ -1565,21 +1594,30 @@ def main():
     </style>
     """, unsafe_allow_html=True)
     
+    # ИСПРАВЛЕНИЕ #1: Сначала БД и загрузка акций, потом запуск монитора
+    init_db()
+    
+    # Загрузка динамических акций ПЕРЕД запуском монитора
+    if 'stocks_loaded' not in st.session_state:
+        try:
+            load_dynamic_stocks()
+            st.session_state.stocks_loaded = True
+        except Exception as e:
+            logger.error(f"Ошибка загрузки акций: {e}")
+    
+    # Запуск фонового мониторинга ПОСЛЕ загрузки акций
     if 'monitor_running' not in st.session_state:
         st.session_state.monitor_running = True
         threading.Thread(target=background_monitor, daemon=True).start()
     
-    init_db()
-    
-    st.title("📈 Макро-Радар МОЕХ v6.1")
-    st.caption("**Профессиональный трейдинг-терминал с AI-аналитикой**")
+    st.title("📈 Макро-Радар МОЕХ v7.1")
+    st.caption("**Профессиональный трейдинг-терминал с 200+ акциями**")
     st.warning("⚠️ Аналитический инструмент. Все решения принимаете самостоятельно.")
     
     now = datetime.now(CONFIG['MSK_TZ'])
     is_open = now.weekday() < 5 and 10 <= now.hour < 24
     st.caption(f"**Статус:** {'🟢 Торги' if is_open else '🔴 Закрыт'} | **Время:** {now.strftime('%H:%M:%S')}")
     
-    # Загрузка данных
     signals_rows = execute_db_query('SELECT * FROM signals ORDER BY timestamp DESC LIMIT 200', fetch=True) or []
     sig_cols = ['id', 'timestamp', 'ticker', 'name', 'type', 'sector', 'price', 'change_pct',
               'volume', 'avg_volume', 'rsi', 'atr', 'strength', 'news_sentiment', 'forecast_score',
@@ -1612,9 +1650,8 @@ def main():
         st.metric("Win Rate", f"{wr:.1f}%")
     with c4: st.metric("Идей", len(trade_ideas))
     with c5:
-        avg_pnl = sum(s.get('pnl_pct', 0) or 0 for s in checked) / max(len(checked), 1)
-        c = "green" if avg_pnl >= 0 else "red"
-        st.markdown(f"**P&L:** <span style='color:{c}; font-size:20px;'>{avg_pnl:+.2f}%</span>", unsafe_allow_html=True)
+        total_assets = len(get_all_assets())
+        st.metric("Активов", total_assets)
     
     st.markdown("---")
     
@@ -1625,8 +1662,8 @@ def main():
         if st.button("🔄 Обновить"):
             st.rerun()
     
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
-        "⭐ Лучшие идеи", "🔥 Корреляции", "📊 Секторы",
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+        "⭐ Лучшие идеи", "🇷🇺 Каталог", "🔥 Корреляции", "📊 Секторы",
         "📈 Котировки", "💡 Идеи", "🎯 Сигналы",
         "🚨 Позиции", "📊 Эффективность", "📰 Новости", "📜 История"
     ])
@@ -1634,13 +1671,15 @@ def main():
     with tab1:
         render_best_ideas_dashboard()
     with tab2:
-        render_heatmap_correlation()
+        render_stock_catalog_tab()
     with tab3:
-        render_sector_comparison()
+        render_heatmap_correlation()
     with tab4:
+        render_sector_comparison()
+    with tab5:
         render_quotes_tab()
     
-    with tab5:
+    with tab6:
         st.subheader("Готовые торговые планы")
         if not trade_ideas:
             st.info("Ожидание идей с R:R ≥ 1:2...")
@@ -1650,25 +1689,22 @@ def main():
                 dir_emoji = "📈" if direction == 'long' else "📉"
                 css = "trade-long" if direction == 'long' else "trade-short"
                 
-                df = get_moex_data(idea.get('ticker', ''), CONFIG['ASSETS'].get(idea.get('ticker', ''), {}).get('type', 'stock'))
+                ticker = idea.get('ticker', '')
+                asset_info = get_all_assets().get(ticker, {'type': 'stock'})
+                df = get_moex_data(ticker, asset_info.get('type', 'stock'))
                 exit_sigs = []
                 if df is not None:
                     cp = df['close'].iloc[-1]
                     rsi = calculate_rsi(df)
                     exit_sigs = generate_exit_signals(
-                        cp,
-                        idea.get('entry_price', 0),
-                        idea.get('stop_loss', 0),
-                        idea.get('take_profit_1', 0),
-                        idea.get('take_profit_2', 0),
-                        idea.get('take_profit_3', 0),
-                        direction, rsi
-                    )
+                        cp, idea.get('entry_price', 0), idea.get('stop_loss', 0),
+                        idea.get('take_profit_1', 0), idea.get('take_profit_2', 0),
+                        idea.get('take_profit_3', 0), direction, rsi)
                 
                 st.markdown(f'<div class="{css}">', unsafe_allow_html=True)
                 c1, c2, c3 = st.columns([2, 1, 1])
                 with c1:
-                    st.markdown(f"**{dir_emoji} {idea.get('name', '')} ({idea.get('ticker', '')})**")
+                    st.markdown(f"**{dir_emoji} {idea.get('name', '')} ({ticker})**")
                     st.caption(f"**{direction.upper()}** | Уверенность: {idea.get('confidence', 0):.0f}%")
                 with c2: st.metric("Вход", f"{idea.get('entry_price', 0):.2f}")
                 with c3: st.metric("R:R", f"1:{idea.get('risk_reward', 0):.1f}")
@@ -1696,7 +1732,7 @@ def main():
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.divider()
     
-    with tab6:
+    with tab7:
         st.subheader("Сигналы с уровнями")
         if not signals:
             st.info("Ожидание...")
@@ -1714,16 +1750,15 @@ def main():
                     with c4: st.metric("Направление", direction.upper())
                     with c5: st.metric("R:R", f"1:{sig.get('risk_reward', 0):.1f}")
                     st.markdown(f"**Вход:** {sig.get('entry_price', 0):.2f} | **Стоп:** {sig.get('stop_loss', 0):.2f}")
-                    st.markdown(f"**Цели:** {sig.get('take_profit_1', 0):.2f} / {sig.get('take_profit_2', 0):.2f} / {sig.get('take_profit_3', 0):.2f}")
     
-    with tab7:
+    with tab8:
         st.subheader("Активные позиции")
         if not trade_ideas:
             st.info("Нет позиций")
         else:
             for idea in trade_ideas:
                 ticker = idea.get('ticker', '')
-                asset_info = CONFIG['ASSETS'].get(ticker, {})
+                asset_info = get_all_assets().get(ticker, {'type': 'stock'})
                 df = get_moex_data(ticker, asset_info.get('type', 'stock'))
                 if df is not None:
                     cp = df['close'].iloc[-1]
@@ -1747,7 +1782,7 @@ def main():
                     st.markdown('</div>', unsafe_allow_html=True)
                     st.divider()
     
-    with tab8:
+    with tab9:
         st.subheader("📊 Эффективность")
         if len(checked) < 5:
             st.info(f"Мало данных: {len(checked)}. Нужно 5+.")
@@ -1777,22 +1812,11 @@ def main():
             with c2:
                 st.markdown("#### P&L")
                 st.bar_chart(df_checked['pnl_pct'])
-            
-            st.markdown("#### По тикерам")
-            try:
-                stats = df_checked.groupby('ticker').agg({
-                    'outcome': lambda x: (x == 'win').sum() / len(x) * 100,
-                    'pnl_pct': 'mean', 'id': 'count'
-                }).round(2)
-                stats.columns = ['Win Rate %', 'Ср. P&L %', 'Кол-во']
-                st.dataframe(stats.sort_values('Win Rate %', ascending=False), use_container_width=True)
-            except Exception as e:
-                st.error(f"Ошибка статистики: {e}")
-    
-    with tab9:
-        render_news_tab()
     
     with tab10:
+        render_news_tab()
+    
+    with tab11:
         st.subheader("📜 История")
         if not signals:
             st.info("Пусто")
