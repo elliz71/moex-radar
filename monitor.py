@@ -2,6 +2,7 @@ import streamlit as st
 import feedparser
 import time
 import logging
+import pandas as pd
 from datetime import datetime
 from config import CONFIG, HEADERS, get_all_assets
 from database import init_db, execute_db_query
